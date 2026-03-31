@@ -1,0 +1,137 @@
+/** JSON-RPC 2.0 types for Neo server communication. */
+
+export interface RpcRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params?: Record<string, unknown>;
+  id: number | string;
+}
+
+export interface RpcResponse<T = unknown> {
+  jsonrpc: "2.0";
+  result?: T;
+  error?: RpcError;
+  id: number | string | null;
+}
+
+export interface RpcError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+// --- RPC method result types ---
+
+export interface HealthResult {
+  status: string;
+  providers: string[];
+}
+
+export interface ExecuteResult {
+  status: "success" | "error";
+  message: string;
+  tool_used: string;
+  tool_result: string | null;
+  model_used: string;
+  routed_tier: string;
+  duration_ms: number;
+  session_id: string;
+}
+
+export interface ConversationNewResult {
+  session_id: string;
+}
+
+export interface ConversationSession {
+  session_id: string;
+  started_at: string;
+  last_message_at: string;
+  message_count: number;
+}
+
+export interface ConversationListResult {
+  sessions: ConversationSession[];
+}
+
+export interface ConversationMessage {
+  id: number;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  model_used: string;
+  created_at: string;
+}
+
+export interface ConversationLoadResult {
+  session_id: string;
+  messages: ConversationMessage[];
+}
+
+export interface Skill {
+  id: number;
+  name: string;
+  file_path: string;
+  skill_type: "public" | "user";
+  description: string;
+  task_types: string;
+  is_enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SkillsListResult {
+  skills: Skill[];
+}
+
+export interface SkillsToggleResult {
+  updated: boolean;
+  name: string;
+  enabled: boolean;
+}
+
+export interface ActionLogEntry {
+  id: number;
+  input_text: string;
+  intent: string;
+  skill_used: string;
+  tool_used: string;
+  model_used: string;
+  routed_tier: string;
+  result: string;
+  status: string;
+  duration_ms: number;
+  tokens_used: number;
+  cost_brl: number;
+  created_at: string;
+}
+
+export interface ActionsRecentResult {
+  actions: ActionLogEntry[];
+}
+
+export interface UserProfile {
+  id: number;
+  name: string;
+  role: string;
+  preferences: Record<string, string>;
+  tool_paths: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SettingsGetResult {
+  profile: UserProfile | null;
+}
+
+export interface SettingsUpdateResult {
+  updated: boolean;
+}
+
+export interface Provider {
+  tier: string;
+  name: string;
+}
+
+export interface ProvidersListResult {
+  providers: Provider[];
+}
