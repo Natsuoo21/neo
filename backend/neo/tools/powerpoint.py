@@ -23,8 +23,9 @@ def create_presentation(title: str, slides: list[dict] | None = None) -> str:
         # Single title slide — use basename, not full path
         layout = prs.slide_layouts[0]  # Title Slide
         slide = prs.slides.add_slide(layout)
-        slide.shapes.title.text = os.path.basename(title)
-        if slide.placeholders[1]:
+        if slide.shapes.title:
+            slide.shapes.title.text = os.path.basename(title)
+        if len(slide.placeholders) > 1 and slide.placeholders[1]:
             slide.placeholders[1].text = "Created by Neo"
     else:
         for i, slide_def in enumerate(slides):
@@ -35,14 +36,16 @@ def create_presentation(title: str, slides: list[dict] | None = None) -> str:
                 # First slide: Title layout
                 layout = prs.slide_layouts[0]
                 slide = prs.slides.add_slide(layout)
-                slide.shapes.title.text = slide_title
+                if slide.shapes.title:
+                    slide.shapes.title.text = slide_title
                 if len(slide.placeholders) > 1 and slide.placeholders[1]:
                     slide.placeholders[1].text = slide_content
             else:
                 # Content slides: Title + Content layout
                 layout = prs.slide_layouts[1]
                 slide = prs.slides.add_slide(layout)
-                slide.shapes.title.text = slide_title
+                if slide.shapes.title:
+                    slide.shapes.title.text = slide_title
                 if len(slide.placeholders) > 1:
                     body = slide.placeholders[1]
                     tf = body.text_frame

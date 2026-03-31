@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -341,13 +342,15 @@ class TestConversations:
 
 
 class TestSeed:
-    def test_seed_creates_profile(self, conn):
+    def test_seed_creates_profile(self, conn, monkeypatch):
+        # Ensure seed uses defaults (not a local user_profile.json)
+        monkeypatch.setattr("neo.memory.seed._SEED_PROFILE_PATH", Path("/nonexistent/profile.json"))
         result = seed_user_profile(conn)
         conn.commit()
         assert result is True
         profile = get_user_profile(conn)
         assert profile is not None
-        assert profile["name"] == "Andre"
+        assert profile["name"] == "User"  # default name
 
     def test_seed_does_not_overwrite(self, conn):
         upsert_user_profile(conn, name="Original")

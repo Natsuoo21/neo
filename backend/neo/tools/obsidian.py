@@ -56,6 +56,7 @@ def create_note(
     full_content = "\n".join(frontmatter_lines + body_lines)
 
     file_path = _resolve_vault_path(title)
+    _validate_vault_path(file_path)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     with open(file_path, "w", encoding="utf-8") as f:

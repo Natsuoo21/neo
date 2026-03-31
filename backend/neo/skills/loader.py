@@ -151,9 +151,41 @@ def sync_skills_to_db(conn: sqlite3.Connection) -> int:
         )
         count += 1
 
-    conn.commit()
     logger.info("Synced %d skills to database", count)
     return count
+
+
+def route_skill_with_name(command: str, conn: sqlite3.Connection) -> tuple[str, str]:
+    """Match a user command to the best skill and return (name, content).
+
+    Returns:
+        Tuple of (skill_name, skill_content), or ("", "") if no match.
+    """
+    words = set(command.lower().split())
+
+    enabled = get_enabled_skills(conn)
+    best_skill = None
+    best_score = 0
+
+    for skill_row in enabled:
+        task_types = skill_row.get("task_types", "[]")
+        if isinstance(task_types, str):
+            try:
+                task_types = json.loads(task_types)
+            except (json.JSONDecodeError, TypeError):
+                task_types = []
+
+        score = len(words & set(t.lower() for t in task_types))
+        if score > best_score:
+            best_score = score
+            best_skill = skill_row
+
+    if best_skill and best_skill.get("file_path"):
+        parsed = parse_skill_file(best_skill["file_path"])
+        if parsed:
+            return parsed["name"], parsed["content"]
+
+    return "", ""
 
 
 def route_skill(command: str, conn: sqlite3.Connection) -> str:
@@ -182,7 +214,7 @@ def route_skill(command: str, conn: sqlite3.Connection) -> str:
             except (json.JSONDecodeError, TypeError):
                 task_types = []
 
-        score = len(words & set(task_types))
+        score = len(words & set(t.lower() for t in task_types))
         if score > best_score:
             best_score = score
             best_skill = skill_row

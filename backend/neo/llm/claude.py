@@ -46,6 +46,8 @@ class ClaudeProvider(LLMProvider):
                     messages=[{"role": "user", "content": user}],
                 )
                 self._track_usage(response.usage)
+                if not response.content:
+                    return ""
                 return response.content[0].text  # type: ignore[union-attr]
             except APIError as e:
                 if attempt == _MAX_RETRIES:
@@ -73,6 +75,8 @@ class ClaudeProvider(LLMProvider):
                     tools=tools,  # type: ignore[arg-type]
                 )
                 self._track_usage(response.usage)
+                if not response.content:
+                    return {"type": "text", "content": ""}
                 return self._parse_tool_response(response)
             except APIError as e:
                 if attempt == _MAX_RETRIES:

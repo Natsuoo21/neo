@@ -180,6 +180,7 @@ async def process(
     provider: LLMProvider,
     conn: sqlite3.Connection,
     skill_content: str = "",
+    skill_name: str = "",
 ) -> ProcessResult:
     """Process a user command through the full 6-stage lifecycle.
 
@@ -246,7 +247,7 @@ async def process(
             conn,
             input_text=command,
             intent="",
-            skill_used=skill_content[:50] if skill_content else "",
+            skill_used=skill_name,
             tool_used=result["tool_used"],
             model_used=result["model_used"],
             result={"message": result["message"], "tool_result": result["tool_result"]},

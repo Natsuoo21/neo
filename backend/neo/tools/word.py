@@ -19,8 +19,8 @@ def create_document(title: str, content: str = "") -> str:
     """
     doc = Document()
 
-    # Add title as Heading 1
-    doc.add_heading(title, level=0)
+    # Add title as Heading 1 — use basename, not full path
+    doc.add_heading(os.path.basename(title), level=0)
 
     if content:
         for line in content.split("\n"):

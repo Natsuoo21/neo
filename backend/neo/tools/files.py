@@ -3,24 +3,7 @@
 import os
 import shutil
 
-# Directories that should NEVER be modified
-_PROTECTED_DIRS = {
-    "/",
-    "/bin",
-    "/sbin",
-    "/usr",
-    "/etc",
-    "/var",
-    "/boot",
-    "/dev",
-    "/proc",
-    "/sys",
-    "/lib",
-    "/lib64",
-    "C:\\Windows",
-    "C:\\Program Files",
-    "C:\\Program Files (x86)",
-}
+from neo.tools.paths import PROTECTED_DIRS
 
 
 def manage_file(action: str, source: str, destination: str = "") -> str:
@@ -37,7 +20,7 @@ def manage_file(action: str, source: str, destination: str = "") -> str:
     source = os.path.expanduser(source)
 
     if not os.path.exists(source):
-        return f"Error: source does not exist: {source}"
+        raise ValueError(f"Source does not exist: {source}")
 
     _check_safety(source)
     if destination:
@@ -46,14 +29,14 @@ def manage_file(action: str, source: str, destination: str = "") -> str:
 
     if action == "move":
         if not destination:
-            return "Error: destination required for move"
+            raise ValueError("Destination required for move")
         os.makedirs(os.path.dirname(destination) or ".", exist_ok=True)
         shutil.move(source, destination)
         return f"Moved {source} → {destination}"
 
     elif action == "rename":
         if not destination:
-            return "Error: new name required for rename"
+            raise ValueError("New name required for rename")
         # If destination is just a filename (no path), rename in same directory
         if not os.path.dirname(destination):
             destination = os.path.join(os.path.dirname(source), destination)
@@ -62,7 +45,7 @@ def manage_file(action: str, source: str, destination: str = "") -> str:
 
     elif action == "copy":
         if not destination:
-            return "Error: destination required for copy"
+            raise ValueError("Destination required for copy")
         os.makedirs(os.path.dirname(destination) or ".", exist_ok=True)
         if os.path.isdir(source):
             shutil.copytree(source, destination)
@@ -72,12 +55,12 @@ def manage_file(action: str, source: str, destination: str = "") -> str:
 
     elif action == "delete":
         if os.path.isdir(source):
-            return f"Error: refusing to delete directory {source}. Use specific file paths."
+            raise ValueError(f"Refusing to delete directory {source}. Use specific file paths.")
         os.remove(source)
         return f"Deleted {source}"
 
     else:
-        return f"Error: unknown action '{action}'. Use move, rename, copy, or delete."
+        raise ValueError(f"Unknown action '{action}'. Use move, rename, copy, or delete.")
 
 
 def move_file(src: str, dst: str) -> str:
@@ -93,6 +76,6 @@ def _check_safety(path: str) -> None:
     """
     real_path = os.path.realpath(path)
 
-    for protected in _PROTECTED_DIRS:
+    for protected in PROTECTED_DIRS:
         if real_path == protected or real_path.startswith(protected + os.sep):
             raise ValueError(f"Refusing to modify protected system path: {real_path}")

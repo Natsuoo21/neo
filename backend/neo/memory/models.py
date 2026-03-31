@@ -3,7 +3,7 @@
 import json
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ============================================
 # USER PROFILE
@@ -27,7 +27,7 @@ def upsert_user_profile(
 ) -> int:
     """Create or update the user profile."""
     existing = conn.execute("SELECT id FROM user_profile WHERE id = 1").fetchone()
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     if existing:
         conn.execute(
@@ -61,7 +61,7 @@ def create_project(
     conventions: dict | None = None,
 ) -> int:
     """Create a new project. Returns project ID."""
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """INSERT INTO projects
            (name, description, goals, stakeholders, file_paths, conventions, created_at, updated_at)
@@ -109,7 +109,7 @@ def update_project(conn: sqlite3.Connection, project_id: int, **kwargs) -> bool:
         if key in updates and not isinstance(updates[key], str):
             updates[key] = json.dumps(updates[key])
 
-    updates["updated_at"] = datetime.now().isoformat()
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [project_id]
     conn.execute(f"UPDATE projects SET {set_clause} WHERE id = ?", values)
@@ -184,7 +184,7 @@ def upsert_skill(
     task_types: list | None = None,
 ) -> int:
     """Insert or update a skill in the registry."""
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     existing = conn.execute("SELECT id FROM skills WHERE name = ?", (name,)).fetchone()
 
     if existing:
@@ -233,7 +233,7 @@ def create_automation(
     trigger_config: dict | None = None,
 ) -> int:
     """Create a new automation. Returns automation ID."""
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """INSERT INTO automations (name, trigger_type, trigger_config, command, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?)""",
@@ -252,7 +252,7 @@ def update_automation_status(
     conn: sqlite3.Connection, automation_id: int, status: str, increment_retry: bool = False
 ) -> None:
     """Update an automation's last run status."""
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     if increment_retry:
         conn.execute(
             """UPDATE automations
@@ -269,7 +269,7 @@ def update_automation_status(
 
 def disable_automation(conn: sqlite3.Connection, automation_id: int) -> None:
     """Disable an automation (pause it)."""
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute("UPDATE automations SET is_enabled=0, updated_at=? WHERE id=?", (now, automation_id))
 
 

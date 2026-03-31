@@ -54,7 +54,10 @@ def init_schema(db_path: str | None = None) -> None:
     """
     schema_sql = _SCHEMA_PATH.read_text()
     with get_session(db_path) as conn:
-        conn.executescript(schema_sql)
+        for statement in schema_sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                conn.execute(statement)
 
 
 def get_tables(db_path: str | None = None) -> list[str]:

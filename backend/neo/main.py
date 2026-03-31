@@ -2,11 +2,14 @@
 
 import asyncio
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from neo.memory.db import get_session, init_schema
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
-from neo.skills.loader import route_skill, sync_skills_to_db
+from neo.skills.loader import route_skill_with_name, sync_skills_to_db
 
 
 def _get_provider():
@@ -34,10 +37,9 @@ def bootstrap(db_path: str | None = None) -> tuple:
     Returns:
         (provider, db_path) tuple ready for use.
     """
-    # Load .env.development if it exists (use cwd, not relative to source)
-    env_path = os.path.join(os.getcwd(), ".env.development")
-    if os.path.exists(env_path):
-        _load_dotenv(env_path)
+    # Load .env.development if it exists (relative to backend dir)
+    env_path = Path(__file__).resolve().parent.parent / ".env.development"
+    load_dotenv(env_path, override=False)
 
     if db_path is None:
         db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")
@@ -76,8 +78,8 @@ async def _async_main() -> None:
 
             # Route to matching skill, then process through orchestrator
             with get_session(db_path) as conn:
-                skill_content = route_skill(command, conn)
-                result = await process(command, provider, conn, skill_content)
+                skill_name, skill_content = route_skill_with_name(command, conn)
+                result = await process(command, provider, conn, skill_content, skill_name=skill_name)
 
             # Display result
             if result["status"] == "success":
@@ -95,26 +97,6 @@ async def _async_main() -> None:
 def main():
     """Start the Neo interactive CLI."""
     asyncio.run(_async_main())
-
-
-def _load_dotenv(path: str) -> None:
-    """Simple .env loader — no dependency on python-dotenv at runtime."""
-    try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                # Support `export VAR=value` syntax
-                if line.startswith("export "):
-                    line = line[7:]
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip("'\"")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except OSError:
-        pass
 
 
 if __name__ == "__main__":

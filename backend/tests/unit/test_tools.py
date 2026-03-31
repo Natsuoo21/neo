@@ -250,21 +250,70 @@ class TestFiles:
         assert not os.path.exists(src)
 
     def test_source_not_found(self):
-        result = manage_file("move", "/nonexistent/file.txt", "/tmp/dst.txt")
-        assert "Error" in result
+        with pytest.raises(ValueError, match="does not exist"):
+            manage_file("move", "/nonexistent/file.txt", "/tmp/dst.txt")
 
     def test_delete_directory_refused(self, tmp_dir):
-        result = manage_file("delete", tmp_dir)
-        assert "Error" in result
-        assert "refusing" in result.lower()
+        with pytest.raises(ValueError, match="[Rr]efusing"):
+            manage_file("delete", tmp_dir)
 
     def test_unknown_action(self, tmp_dir):
         src = os.path.join(tmp_dir, "file.txt")
         with open(src, "w") as f:
             f.write("x")
-        result = manage_file("explode", src)
-        assert "Error" in result
+        with pytest.raises(ValueError, match="[Uu]nknown action"):
+            manage_file("explode", src)
 
     def test_safety_check_system_dir(self):
         with pytest.raises(ValueError, match="protected"):
             manage_file("delete", "/bin/bash")
+
+
+# ============================================
+# PATH RESOLUTION (security-critical)
+# ============================================
+
+
+class TestPaths:
+    def test_resolve_path_relative_title(self, monkeypatch):
+        from neo.tools.paths import resolve_path
+
+        monkeypatch.setenv("DEFAULT_SAVE_DIR", "/tmp/neo_test")
+        result = resolve_path("Report", ".xlsx")
+        assert result == "/tmp/neo_test/Report.xlsx"
+
+    def test_resolve_path_absolute_valid(self, tmp_dir):
+        from neo.tools.paths import resolve_path
+
+        path = os.path.join(tmp_dir, "file")
+        result = resolve_path(path, ".xlsx")
+        assert result == path + ".xlsx"
+
+    def test_resolve_path_blocks_system_dir(self):
+        from neo.tools.paths import resolve_path
+
+        with pytest.raises(ValueError, match="protected"):
+            resolve_path("/etc/passwd", ".xlsx")
+
+    def test_resolve_path_blocks_sensitive_home(self):
+        from neo.tools.paths import resolve_path
+
+        with pytest.raises(ValueError, match="sensitive"):
+            resolve_path(os.path.expanduser("~/.ssh/key"), ".xlsx")
+
+    def test_resolve_path_sanitizes_special_chars(self, monkeypatch):
+        from neo.tools.paths import resolve_path
+
+        monkeypatch.setenv("DEFAULT_SAVE_DIR", "/tmp/neo_test")
+        result = resolve_path("../../../etc/passwd", ".xlsx")
+        # Should be sanitized to safe filename, not a traversal
+        assert "/tmp/neo_test/" in result
+        assert ".." not in result
+
+    def test_resolve_path_tilde_expansion(self, tmp_dir, monkeypatch):
+        from neo.tools.paths import resolve_path
+
+        # Tilde should be expanded
+        result = resolve_path("~/Documents/Neo/test", ".xlsx")
+        assert "~" not in result
+        assert os.path.isabs(result)

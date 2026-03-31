@@ -105,10 +105,9 @@ class TestToolDispatch:
         with pytest.raises(ToolError, match="Unknown tool"):
             dispatch_tool("nonexistent_tool", {})
 
-    def test_dispatch_calls_correct_module(self):
-        # The actual tool functions create real files
-        # This test verifies dispatch works end-to-end
-        result = dispatch_tool("create_excel", {"title": "Test"})
+    def test_dispatch_calls_correct_module(self, tmp_path):
+        # Use tmp_path to avoid creating files in user's home
+        result = dispatch_tool("create_excel", {"title": str(tmp_path / "Test")})
         assert "Test" in result or ".xlsx" in result
 
 
