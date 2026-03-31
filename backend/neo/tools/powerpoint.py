@@ -4,7 +4,7 @@ import os
 
 from pptx import Presentation
 
-_DEFAULT_SAVE_DIR = os.path.expanduser(os.environ.get("DEFAULT_SAVE_DIR", "~/Documents/Neo"))
+from neo.tools.paths import resolve_path
 
 
 def create_presentation(title: str, slides: list[dict] | None = None) -> str:
@@ -20,10 +20,10 @@ def create_presentation(title: str, slides: list[dict] | None = None) -> str:
     prs = Presentation()
 
     if not slides:
-        # Single title slide
+        # Single title slide — use basename, not full path
         layout = prs.slide_layouts[0]  # Title Slide
         slide = prs.slides.add_slide(layout)
-        slide.shapes.title.text = title
+        slide.shapes.title.text = os.path.basename(title)
         if slide.placeholders[1]:
             slide.placeholders[1].text = "Created by Neo"
     else:
@@ -48,23 +48,7 @@ def create_presentation(title: str, slides: list[dict] | None = None) -> str:
                     tf = body.text_frame
                     tf.text = slide_content
 
-    file_path = _resolve_path(title, ".pptx")
+    file_path = resolve_path(title, ".pptx")
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     prs.save(file_path)
     return file_path
-
-
-def _resolve_path(title: str, extension: str) -> str:
-    """Resolve a title to an absolute file path."""
-    if os.path.isabs(title):
-        if not title.endswith(extension):
-            title += extension
-        return title
-
-    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
-    safe_name = safe_name.strip().replace(" ", "_")
-    if not safe_name.endswith(extension):
-        safe_name += extension
-
-    save_dir = os.path.expanduser(_DEFAULT_SAVE_DIR)
-    return os.path.join(save_dir, safe_name)

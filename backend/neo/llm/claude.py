@@ -1,10 +1,11 @@
 """Claude Provider — Anthropic API integration."""
 
+import asyncio
 import logging
 import os
-import time
 
 from anthropic import APIError, AsyncAnthropic
+from anthropic.types import Message, Usage
 
 from neo.llm.provider import LLMProvider
 
@@ -54,7 +55,7 @@ class ClaudeProvider(LLMProvider):
                 logger.warning(
                     "Claude API error (attempt %d/%d), retrying in %.1fs: %s", attempt, _MAX_RETRIES, delay, e
                 )
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
         return ""  # unreachable, satisfies type checker
 
@@ -81,7 +82,7 @@ class ClaudeProvider(LLMProvider):
                 logger.warning(
                     "Claude API error (attempt %d/%d), retrying in %.1fs: %s", attempt, _MAX_RETRIES, delay, e
                 )
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
         return {"type": "text", "content": ""}  # unreachable
 
@@ -96,25 +97,25 @@ class ClaudeProvider(LLMProvider):
     def total_output_tokens(self) -> int:
         return self._total_output_tokens
 
-    def _track_usage(self, usage) -> None:
+    def _track_usage(self, usage: Usage) -> None:
         self._total_input_tokens += usage.input_tokens
         self._total_output_tokens += usage.output_tokens
 
     @staticmethod
-    def _parse_tool_response(response) -> dict:
+    def _parse_tool_response(response: Message) -> dict:
         """Parse Claude's response into a standardized format."""
         for block in response.content:
             if block.type == "tool_use":
                 return {
                     "type": "tool_use",
                     "content": None,
-                    "tool_name": block.name,
-                    "tool_input": block.input,
+                    "tool_name": block.name,  # type: ignore[union-attr]
+                    "tool_input": block.input,  # type: ignore[union-attr]
                 }
 
         # No tool use — return text
         text = ""
         for block in response.content:
             if block.type == "text":
-                text += block.text
+                text += block.text  # type: ignore[union-attr]
         return {"type": "text", "content": text}

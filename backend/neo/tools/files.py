@@ -15,6 +15,8 @@ _PROTECTED_DIRS = {
     "/dev",
     "/proc",
     "/sys",
+    "/lib",
+    "/lib64",
     "C:\\Windows",
     "C:\\Program Files",
     "C:\\Program Files (x86)",
@@ -84,9 +86,13 @@ def move_file(src: str, dst: str) -> str:
 
 
 def _check_safety(path: str) -> None:
-    """Raise ValueError if path is in a protected system directory."""
-    abs_path = os.path.abspath(path)
+    """Raise ValueError if path is in a protected system directory.
+
+    Uses realpath to resolve symlinks (prevents symlink bypass attacks).
+    Protects the entire subtree of each protected directory.
+    """
+    real_path = os.path.realpath(path)
+
     for protected in _PROTECTED_DIRS:
-        if abs_path == protected or abs_path.startswith(protected + os.sep):
-            if abs_path.count(os.sep) <= protected.count(os.sep) + 1:
-                raise ValueError(f"Refusing to modify protected system path: {abs_path}")
+        if real_path == protected or real_path.startswith(protected + os.sep):
+            raise ValueError(f"Refusing to modify protected system path: {real_path}")

@@ -6,15 +6,33 @@ routes to LLM, executes tool, logs action.
 6-stage lifecycle: RECEIVE → PARSE → ROUTE → SKILL → EXECUTE → CONFIRM
 """
 
+import importlib
 import json
 import logging
 import sqlite3
 import time
+from typing import TypedDict
 
 from neo.llm.provider import LLMProvider
 from neo.memory.models import get_user_profile, log_action
 
 logger = logging.getLogger(__name__)
+
+
+class ProcessResult(TypedDict):
+    """Typed result from the orchestrator's process() function."""
+
+    status: str
+    message: str
+    tool_used: str
+    tool_result: str | None
+    model_used: str
+    duration_ms: int
+
+
+class ToolError(Exception):
+    """Raised when a tool dispatch fails."""
+
 
 # Tool definitions exposed to the LLM for tool-use calls
 TOOL_DEFINITIONS = [
@@ -162,14 +180,17 @@ async def process(
     provider: LLMProvider,
     conn: sqlite3.Connection,
     skill_content: str = "",
-) -> dict:
+) -> ProcessResult:
     """Process a user command through the full 6-stage lifecycle.
 
+    Note: Does NOT commit to the database — the caller's context manager
+    (get_session) owns the transaction boundary.
+
     Returns:
-        dict with keys: status, message, tool_used, model_used, duration_ms
+        ProcessResult with status, message, tool_used, model_used, duration_ms
     """
     start = time.time()
-    result = {
+    result: ProcessResult = {
         "status": "success",
         "message": "",
         "tool_used": "",
@@ -185,6 +206,7 @@ async def process(
         system_prompt = build_system_prompt(conn, skill_content)
 
         # STAGE 3: ROUTE (for now, use the provider passed in; P1 adds router)
+        # Note: Conversation history will be integrated in P1.
 
         # STAGE 2+5: PARSE + EXECUTE via tool use
         llm_response = await provider.complete_with_tools(
@@ -206,12 +228,16 @@ async def process(
             # Text-only response (question, clarification, etc.)
             result["message"] = llm_response.get("content", "")
 
-    except Exception as e:
-        logger.error("Orchestrator error: %s", e)
+    except ToolError as e:
+        logger.exception("Tool dispatch error")
         result["status"] = "error"
         result["message"] = str(e)
+    except Exception:
+        logger.exception("Orchestrator error")
+        result["status"] = "error"
+        result["message"] = "An internal error occurred. Check logs for details."
 
-    # STAGE 6: CONFIRM — log the action
+    # STAGE 6: CONFIRM — log the action (caller owns commit)
     elapsed_ms = int((time.time() - start) * 1000)
     result["duration_ms"] = elapsed_ms
 
@@ -221,15 +247,14 @@ async def process(
             input_text=command,
             intent="",
             skill_used=skill_content[:50] if skill_content else "",
-            tool_used=str(result["tool_used"]),
-            model_used=str(result["model_used"]),
+            tool_used=result["tool_used"],
+            model_used=result["model_used"],
             result={"message": result["message"], "tool_result": result["tool_result"]},
-            status=str(result["status"]),
+            status=result["status"],
             duration_ms=elapsed_ms,
         )
-        conn.commit()
-    except Exception as e:
-        logger.error("Failed to log action: %s", e)
+    except Exception:
+        logger.exception("Failed to log action")
 
     return result
 
@@ -237,20 +262,18 @@ async def process(
 def dispatch_tool(tool_name: str, tool_input: dict) -> str:
     """Dispatch a tool call to the correct module function.
 
+    Raises ToolError on failure instead of returning error strings.
     Returns a string describing the result.
     """
     if tool_name not in TOOL_REGISTRY:
-        return f"Unknown tool: {tool_name}"
+        raise ToolError(f"Unknown tool: {tool_name}")
 
     module_path, func_name = TOOL_REGISTRY[tool_name]
 
     try:
-        import importlib
-
         module = importlib.import_module(module_path)
         func = getattr(module, func_name)
         result = func(**tool_input)
         return str(result) if result else "Tool executed (no output path)"
     except Exception as e:
-        logger.error("Tool dispatch error for %s: %s", tool_name, e)
-        return f"Tool error: {e}"
+        raise ToolError(f"Tool '{tool_name}' failed: {e}") from e

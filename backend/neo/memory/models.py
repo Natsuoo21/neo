@@ -1,6 +1,7 @@
 """Database models — CRUD operations for all tables."""
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 
@@ -97,6 +98,11 @@ def update_project(conn: sqlite3.Connection, project_id: int, **kwargs) -> bool:
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
+
+    # Validate that all keys are safe identifiers (defense-in-depth)
+    for key in updates:
+        if not re.match(r"^[a-z_]+$", key):
+            raise ValueError(f"Invalid column name: {key}")
 
     # Serialize JSON fields
     for key in ("goals", "stakeholders", "file_paths", "conventions"):

@@ -3,7 +3,10 @@
 import os
 from datetime import datetime, timezone
 
-_DEFAULT_VAULT = os.path.expanduser(os.environ.get("OBSIDIAN_VAULT_PATH", "~/Documents/Neo/vault"))
+
+def _get_default_vault() -> str:
+    """Return the default vault path, evaluated at call time."""
+    return os.path.expanduser(os.environ.get("OBSIDIAN_VAULT_PATH", "~/Documents/Neo/vault"))
 
 
 def create_note(
@@ -64,8 +67,11 @@ def create_note(
 def append_to_note(path: str, content: str) -> str:
     """Append content to an existing note.
 
+    Only allows appending to files within the vault directory.
     Returns the file path.
     """
+    _validate_vault_path(path)
+
     with open(path, "a", encoding="utf-8") as f:
         f.write(f"\n{content}\n")
     return path
@@ -78,5 +84,17 @@ def _resolve_vault_path(title: str) -> str:
     if not safe_name.endswith(".md"):
         safe_name += ".md"
 
-    vault = os.path.expanduser(_DEFAULT_VAULT)
+    vault = _get_default_vault()
     return os.path.join(vault, safe_name)
+
+
+def _validate_vault_path(path: str) -> None:
+    """Ensure the path is within the vault directory.
+
+    Raises ValueError if path is outside the vault.
+    """
+    vault = _get_default_vault()
+    real_path = os.path.realpath(path)
+    real_vault = os.path.realpath(vault)
+    if not real_path.startswith(real_vault + os.sep) and real_path != real_vault:
+        raise ValueError(f"Path is outside the vault directory: {path}")

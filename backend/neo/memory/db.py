@@ -5,13 +5,19 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-_DEFAULT_DB_PATH = os.environ.get("NEO_DB_PATH", "./data/neo.db")
-
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 
-def get_connection(db_path: str = _DEFAULT_DB_PATH) -> sqlite3.Connection:
+def _get_default_db_path() -> str:
+    """Return the default DB path, evaluated at call time (not import time)."""
+    return os.environ.get("NEO_DB_PATH", "./data/neo.db")
+
+
+def get_connection(db_path: str | None = None) -> sqlite3.Connection:
     """Get a SQLite connection with WAL mode and row factory enabled."""
+    if db_path is None:
+        db_path = _get_default_db_path()
+
     # Ensure the data directory exists
     db_dir = os.path.dirname(db_path)
     if db_dir:
@@ -25,7 +31,7 @@ def get_connection(db_path: str = _DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 
 @contextmanager
-def get_session(db_path: str = _DEFAULT_DB_PATH):
+def get_session(db_path: str | None = None):
     """Context manager for database transactions.
 
     Auto-commits on success, rolls back on exception.
@@ -41,7 +47,7 @@ def get_session(db_path: str = _DEFAULT_DB_PATH):
         conn.close()
 
 
-def init_schema(db_path: str = _DEFAULT_DB_PATH) -> None:
+def init_schema(db_path: str | None = None) -> None:
     """Initialize the database schema from schema.sql.
 
     Idempotent — uses CREATE TABLE IF NOT EXISTS.
@@ -51,7 +57,7 @@ def init_schema(db_path: str = _DEFAULT_DB_PATH) -> None:
         conn.executescript(schema_sql)
 
 
-def get_tables(db_path: str = _DEFAULT_DB_PATH) -> list[str]:
+def get_tables(db_path: str | None = None) -> list[str]:
     """Return a list of all table names in the database."""
     with get_session(db_path) as conn:
         rows = conn.execute(

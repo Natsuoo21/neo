@@ -110,7 +110,7 @@ class TestPowerPoint:
         path = create_presentation(title=os.path.join(tmp_dir, "Single"))
         prs = Presentation(path)
         assert len(prs.slides) == 1
-        assert prs.slides[0].shapes.title.text == os.path.join(tmp_dir, "Single")
+        assert prs.slides[0].shapes.title.text == "Single"
 
 
 # ============================================
@@ -153,7 +153,7 @@ class TestWord:
 
 class TestObsidian:
     def test_create_note_basic(self, tmp_dir, monkeypatch):
-        monkeypatch.setattr("neo.tools.obsidian._DEFAULT_VAULT", tmp_dir)
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: tmp_dir)
         path = create_note(title="Test Note", content="Hello world")
         assert os.path.exists(path)
         assert path.endswith(".md")
@@ -166,7 +166,7 @@ class TestObsidian:
         assert "Hello world" in text
 
     def test_create_note_with_tags(self, tmp_dir, monkeypatch):
-        monkeypatch.setattr("neo.tools.obsidian._DEFAULT_VAULT", tmp_dir)
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: tmp_dir)
         path = create_note(title="Tagged", tags=["project", "neo"])
 
         with open(path) as f:
@@ -174,7 +174,7 @@ class TestObsidian:
         assert "tags: [project, neo]" in text
 
     def test_create_note_with_backlinks(self, tmp_dir, monkeypatch):
-        monkeypatch.setattr("neo.tools.obsidian._DEFAULT_VAULT", tmp_dir)
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: tmp_dir)
         path = create_note(title="Linked", links=["Other Note", "Reference"])
 
         with open(path) as f:
@@ -183,7 +183,7 @@ class TestObsidian:
         assert "[[Reference]]" in text
 
     def test_frontmatter_has_date(self, tmp_dir, monkeypatch):
-        monkeypatch.setattr("neo.tools.obsidian._DEFAULT_VAULT", tmp_dir)
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: tmp_dir)
         path = create_note(title="Dated")
 
         with open(path) as f:
@@ -192,7 +192,7 @@ class TestObsidian:
         assert "created_by: neo" in text
 
     def test_append_to_note(self, tmp_dir, monkeypatch):
-        monkeypatch.setattr("neo.tools.obsidian._DEFAULT_VAULT", tmp_dir)
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: tmp_dir)
         path = create_note(title="Append Test", content="Initial")
         append_to_note(path, "Added later")
 

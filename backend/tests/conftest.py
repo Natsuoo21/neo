@@ -16,10 +16,14 @@ def tmp_dir():
 
 @pytest.fixture
 def memory_db():
-    """Provide an in-memory SQLite connection for tests."""
+    """Provide an in-memory SQLite connection for tests.
+
+    Mirrors production settings: row_factory, foreign_keys enabled.
+    Note: WAL mode is not supported on :memory: databases, so we skip it.
+    """
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
 
     # Load schema
     schema_path = os.path.join(os.path.dirname(__file__), "..", "neo", "memory", "schema.sql")

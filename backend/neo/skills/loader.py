@@ -14,6 +14,7 @@ Skill file format:
     <Markdown instructions for the LLM>
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -121,6 +122,15 @@ def load_all_skills() -> list[dict]:
     return skills
 
 
+def _detect_skill_type(file_path: str) -> str:
+    """Determine skill type based on which directory the file is in."""
+    real_path = os.path.realpath(file_path)
+    real_public = os.path.realpath(_SKILLS_DIR)
+    if real_path.startswith(real_public + os.sep):
+        return "public"
+    return "user"
+
+
 def sync_skills_to_db(conn: sqlite3.Connection) -> int:
     """Scan skill files and upsert them into the skills table.
 
@@ -135,7 +145,7 @@ def sync_skills_to_db(conn: sqlite3.Connection) -> int:
             conn,
             name=skill["name"],
             file_path=skill["file_path"],
-            skill_type="public" if "/public/" in skill["file_path"] else "user",
+            skill_type=_detect_skill_type(skill["file_path"]),
             description=skill["description"],
             task_types=skill["task_types"],
         )
@@ -167,9 +177,6 @@ def route_skill(command: str, conn: sqlite3.Connection) -> str:
     for skill_row in enabled:
         task_types = skill_row.get("task_types", "[]")
         if isinstance(task_types, str):
-            # task_types is stored as JSON string in DB
-            import json
-
             try:
                 task_types = json.loads(task_types)
             except (json.JSONDecodeError, TypeError):

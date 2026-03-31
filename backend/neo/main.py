@@ -28,14 +28,19 @@ def _get_provider():
     )
 
 
-def main():
-    """Start the Neo interactive CLI."""
-    # Load .env.development if it exists
-    env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env.development")
+def bootstrap(db_path: str | None = None) -> tuple:
+    """Initialize Neo components: load env, init DB, seed data, sync skills.
+
+    Returns:
+        (provider, db_path) tuple ready for use.
+    """
+    # Load .env.development if it exists (use cwd, not relative to source)
+    env_path = os.path.join(os.getcwd(), ".env.development")
     if os.path.exists(env_path):
         _load_dotenv(env_path)
 
-    db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")
+    if db_path is None:
+        db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")
 
     # Initialize database on first run
     init_schema(db_path)
@@ -49,6 +54,12 @@ def main():
         print(f"[+] {skill_count} skills loaded.\n")
 
     provider = _get_provider()
+    return provider, db_path
+
+
+async def _async_main() -> None:
+    """Async main loop — single event loop for the entire session."""
+    provider, db_path = bootstrap()
 
     print("Neo — Personal Intelligence Agent")
     print(f"    Model: {provider.name()} | DB: {db_path}")
@@ -66,7 +77,7 @@ def main():
             # Route to matching skill, then process through orchestrator
             with get_session(db_path) as conn:
                 skill_content = route_skill(command, conn)
-                result = asyncio.run(process(command, provider, conn, skill_content))
+                result = await process(command, provider, conn, skill_content)
 
             # Display result
             if result["status"] == "success":
@@ -81,6 +92,11 @@ def main():
             break
 
 
+def main():
+    """Start the Neo interactive CLI."""
+    asyncio.run(_async_main())
+
+
 def _load_dotenv(path: str) -> None:
     """Simple .env loader — no dependency on python-dotenv at runtime."""
     try:
@@ -89,6 +105,9 @@ def _load_dotenv(path: str) -> None:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
+                # Support `export VAR=value` syntax
+                if line.startswith("export "):
+                    line = line[7:]
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip().strip("'\"")

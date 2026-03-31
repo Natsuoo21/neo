@@ -4,16 +4,15 @@ import os
 
 from docx import Document
 
-_DEFAULT_SAVE_DIR = os.path.expanduser(os.environ.get("DEFAULT_SAVE_DIR", "~/Documents/Neo"))
+from neo.tools.paths import resolve_path
 
 
-def create_document(title: str, content: str = "", style: str = "Normal") -> str:
+def create_document(title: str, content: str = "") -> str:
     """Create a new Word document.
 
     Args:
         title: Filename (without extension) or full path.
         content: Document body. Lines starting with # are converted to headings.
-        style: Default paragraph style.
 
     Returns:
         Absolute path to the created .docx file.
@@ -37,25 +36,9 @@ def create_document(title: str, content: str = "", style: str = "Normal") -> str
             elif line.startswith("- "):
                 doc.add_paragraph(line[2:], style="List Bullet")
             else:
-                doc.add_paragraph(line, style=style)
+                doc.add_paragraph(line)
 
-    file_path = _resolve_path(title, ".docx")
+    file_path = resolve_path(title, ".docx")
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     doc.save(file_path)
     return file_path
-
-
-def _resolve_path(title: str, extension: str) -> str:
-    """Resolve a title to an absolute file path."""
-    if os.path.isabs(title):
-        if not title.endswith(extension):
-            title += extension
-        return title
-
-    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)
-    safe_name = safe_name.strip().replace(" ", "_")
-    if not safe_name.endswith(extension):
-        safe_name += extension
-
-    save_dir = os.path.expanduser(_DEFAULT_SAVE_DIR)
-    return os.path.join(save_dir, safe_name)
