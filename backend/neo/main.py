@@ -157,15 +157,16 @@ async def _async_main() -> None:
                     messages=messages,
                 )
 
-                # Store conversation messages
+                # Store conversation messages (skip errors to avoid polluting history)
                 add_message(conn, session_id, "user", clean_command)
-                add_message(
-                    conn,
-                    session_id,
-                    "assistant",
-                    result["message"],
-                    model_used=result["model_used"],
-                )
+                if result["status"] == "success":
+                    add_message(
+                        conn,
+                        session_id,
+                        "assistant",
+                        result["message"],
+                        model_used=result["model_used"],
+                    )
 
             # Display result
             if result["status"] == "success":

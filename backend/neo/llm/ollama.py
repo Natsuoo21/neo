@@ -23,6 +23,13 @@ class OllamaProvider(LLMProvider):
     def __init__(self, base_url: str = _DEFAULT_BASE_URL, model: str = _DEFAULT_MODEL):
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return a reusable async HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=_TIMEOUT)
+        return self._client
 
     async def complete(self, system: str, user: str) -> str:
         """Send a completion request to Ollama."""
@@ -30,14 +37,14 @@ class OllamaProvider(LLMProvider):
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                f"{self._base_url}/api/chat",
-                json={"model": self._model, "messages": messages, "stream": False},
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("message", {}).get("content", "")
+        client = await self._get_client()
+        response = await client.post(
+            f"{self._base_url}/api/chat",
+            json={"model": self._model, "messages": messages, "stream": False},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("message", {}).get("content", "")
 
     async def complete_with_tools(
         self,
@@ -56,15 +63,15 @@ class OllamaProvider(LLMProvider):
             ]
         ollama_tools = self._format_tools(tools)
 
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            payload: dict = {"model": self._model, "messages": msg_list, "stream": False}
-            if ollama_tools:
-                payload["tools"] = ollama_tools
+        client = await self._get_client()
+        payload: dict = {"model": self._model, "messages": msg_list, "stream": False}
+        if ollama_tools:
+            payload["tools"] = ollama_tools
 
-            response = await client.post(f"{self._base_url}/api/chat", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return self._parse_tool_response(data)
+        response = await client.post(f"{self._base_url}/api/chat", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return self._parse_tool_response(data)
 
     def name(self) -> str:
         return "ollama"

@@ -54,9 +54,14 @@ class GeminiProvider(LLMProvider):
         model = self._get_model(system)
         response = await model.generate_content_async(user)
         self._track_usage(response)
-        if not response.text:
+        try:
+            if not response.text:
+                return ""
+            return response.text
+        except ValueError:
+            # Safety filter blocked the response — response.text raises ValueError
+            logger.warning("Gemini response blocked by safety filter")
             return ""
-        return response.text
 
     async def complete_with_tools(
         self,

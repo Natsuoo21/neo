@@ -168,11 +168,11 @@ def toggle_skill(conn: sqlite3.Connection, skill_name: str, enabled: bool) -> bo
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
+    cursor = conn.execute(
         "UPDATE skills SET is_enabled=?, updated_at=? WHERE name=?",
         (1 if enabled else 0, now, skill_name),
     )
-    return conn.total_changes > 0
+    return cursor.rowcount > 0
 
 
 def route_skill_with_name(command: str, conn: sqlite3.Connection) -> tuple[str, str]:

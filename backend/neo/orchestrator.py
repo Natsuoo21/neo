@@ -152,20 +152,30 @@ def _truncate_history(
 
     Always keeps the last message (current user command).
     """
+    if not messages:
+        return []
+
     budget = max_tokens - reserved_tokens
     if budget <= 0:
-        return messages[-1:] if messages else []
+        return messages[-1:]
 
-    result: list[dict] = []
-    total = 0
-    for msg in reversed(messages):
+    # Always include the last message (current user command)
+    last = messages[-1]
+    remaining = messages[:-1]
+
+    result: list[dict] = [last]
+    total = _estimate_tokens(last.get("content", ""))
+
+    # Add older messages from newest to oldest
+    for msg in reversed(remaining):
         msg_tokens = _estimate_tokens(msg.get("content", ""))
         if total + msg_tokens > budget:
             break
         result.append(msg)
         total += msg_tokens
 
-    return list(reversed(result))
+    # result is [last, second-to-last, ...] — reverse the prefix
+    return list(reversed(result[1:])) + [result[0]]
 
 
 # Default context budgets per model tier (in estimated tokens)
@@ -312,10 +322,15 @@ async def process(
         logger.exception("Tool dispatch error")
         result["status"] = "error"
         result["message"] = str(e)
-    except Exception:
+    except Exception as e:
         logger.exception("Orchestrator error")
         result["status"] = "error"
-        result["message"] = "An internal error occurred. Check logs for details."
+        # Surface meaningful error messages (e.g., rate limits) instead of generic text
+        err_msg = str(e)
+        if err_msg and len(err_msg) < 200:
+            result["message"] = err_msg
+        else:
+            result["message"] = "An internal error occurred. Check logs for details."
 
     # STAGE 6: CONFIRM — log the action (caller owns commit)
     elapsed_ms = int((time.time() - start) * 1000)

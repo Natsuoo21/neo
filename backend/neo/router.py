@@ -30,10 +30,6 @@ _LOCAL_KEYWORDS = frozenset(
         "clean",
         "archive",
         "folder",
-        "file",
-        "list",
-        "show",
-        "open",
     }
 )
 
@@ -78,12 +74,12 @@ def route(command: str, token_count: int = 0) -> str:
     if command.startswith("@gemini "):
         return GEMINI
 
-    # 2. Keyword-based fast routing
+    # 2. Keyword-based fast routing (check GEMINI first — complex tasks take priority)
     lower = command.lower()
-    if any(kw in lower for kw in _LOCAL_KEYWORDS):
-        return LOCAL
     if any(kw in lower for kw in _GEMINI_KEYWORDS):
         return GEMINI
+    if any(kw in lower for kw in _LOCAL_KEYWORDS):
+        return LOCAL
 
     # 3. Token count heuristic — short commands are simple, route locally
     if token_count > 0 and token_count < 500:

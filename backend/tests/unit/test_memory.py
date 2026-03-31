@@ -101,9 +101,8 @@ class TestHistoryInProcess:
     async def test_empty_messages_passes_none(self, memory_db):
         provider = MockProvider()
         await process("hello", provider, memory_db, messages=[])
-        # Empty list → truncated to empty → passed as None-equivalent empty
-        # Actually _truncate_history([]) returns [] which is falsy
-        assert provider.last_messages is not None or provider.last_messages is None
+        # Empty list → _truncate_history([]) returns [] → falsy → passed as None
+        assert provider.last_messages is None
 
 
 class TestProjectContextInPrompt:
