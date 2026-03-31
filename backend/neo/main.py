@@ -6,6 +6,7 @@ import os
 from neo.memory.db import get_session, init_schema
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
+from neo.skills.loader import route_skill, sync_skills_to_db
 
 
 def _get_provider():
@@ -41,7 +42,11 @@ def main():
     with get_session(db_path) as conn:
         created = seed_user_profile(conn)
         if created:
-            print("[+] User profile initialized from seed data.\n")
+            print("[+] User profile initialized from seed data.")
+
+        # Sync skill files to DB
+        skill_count = sync_skills_to_db(conn)
+        print(f"[+] {skill_count} skills loaded.\n")
 
     provider = _get_provider()
 
@@ -58,9 +63,10 @@ def main():
                 print("Goodbye.")
                 break
 
-            # Process through the orchestrator
+            # Route to matching skill, then process through orchestrator
             with get_session(db_path) as conn:
-                result = asyncio.run(process(command, provider, conn))
+                skill_content = route_skill(command, conn)
+                result = asyncio.run(process(command, provider, conn, skill_content))
 
             # Display result
             if result["status"] == "success":
