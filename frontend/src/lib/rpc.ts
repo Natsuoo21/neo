@@ -5,9 +5,23 @@
 import type { RpcResponse } from "@/types/rpc";
 
 const DEFAULT_BASE_URL = "http://localhost:9721";
+const RPC_TIMEOUT_MS = 30_000;
 
 let _baseUrl = DEFAULT_BASE_URL;
 let _nextId = 1;
+
+/** Custom error class for RPC errors with code + data. */
+export class RpcError extends Error {
+  code: number;
+  data?: unknown;
+
+  constructor(message: string, code: number, data?: unknown) {
+    super(message);
+    this.name = "RpcError";
+    this.code = code;
+    this.data = data;
+  }
+}
 
 /** Configure the backend URL. */
 export function setBaseUrl(url: string) {
@@ -22,7 +36,8 @@ export function getBaseUrl(): string {
 /**
  * Call a JSON-RPC method on the Neo backend.
  *
- * @throws Error if the network request fails or the RPC returns an error.
+ * @throws RpcError if the RPC returns an error.
+ * @throws Error if the network request fails or times out.
  */
 export async function rpc<T = unknown>(
   method: string,
@@ -40,6 +55,7 @@ export async function rpc<T = unknown>(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
+    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -49,10 +65,7 @@ export async function rpc<T = unknown>(
   const data: RpcResponse<T> = await response.json();
 
   if (data.error) {
-    const err = new Error(data.error.message);
-    (err as unknown as Record<string, unknown>).code = data.error.code;
-    (err as unknown as Record<string, unknown>).data = data.error.data;
-    throw err;
+    throw new RpcError(data.error.message, data.error.code, data.error.data);
   }
 
   return data.result as T;

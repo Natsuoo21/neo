@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Zap, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
@@ -18,25 +18,36 @@ export default function SkillBrowser() {
 
   const handleToggle = async (skill: Skill) => {
     const newEnabled = skill.is_enabled === 0;
+    const previousSkills = [...skills];
+
+    // Optimistic update
+    setSkills(
+      skills.map((s) =>
+        s.name === skill.name ? { ...s, is_enabled: newEnabled ? 1 : 0 } : s,
+      ),
+    );
+
     try {
       await rpc<SkillsToggleResult>("neo.skills.toggle", {
         name: skill.name,
         enabled: newEnabled,
       });
-      setSkills(
-        skills.map((s) =>
-          s.name === skill.name ? { ...s, is_enabled: newEnabled ? 1 : 0 } : s,
-        ),
-      );
     } catch (err) {
+      // Rollback on failure
+      setSkills(previousSkills);
       console.error("Failed to toggle skill:", err);
     }
   };
 
-  const filtered = skills.filter(
-    (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.description.toLowerCase().includes(search.toLowerCase()),
+  const searchLower = search.toLowerCase();
+  const filtered = useMemo(
+    () =>
+      skills.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchLower) ||
+          s.description.toLowerCase().includes(searchLower),
+      ),
+    [skills, searchLower],
   );
 
   return (

@@ -52,6 +52,17 @@ _db_path: str = ""
 # Fallback order when the selected tier is unavailable
 _FALLBACK_CHAIN = [LOCAL, GEMINI, OPENAI, CLAUDE]
 
+# Max command length to prevent abuse
+_MAX_COMMAND_LENGTH = 10_000
+
+# Allowed CORS origins (Tauri dev + production)
+_CORS_ORIGINS = [
+    "http://localhost:1420",
+    "https://localhost:1420",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+]
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap helpers (mirrors main.py logic)
@@ -82,8 +93,12 @@ def _build_provider_registry() -> dict:
 async def _check_ollama(registry: dict) -> None:
     from neo.llm.ollama import OllamaProvider
     ollama = OllamaProvider()
-    if await ollama.is_available():
-        registry[LOCAL] = ollama
+    try:
+        async with asyncio.timeout(5):
+            if await ollama.is_available():
+                registry[LOCAL] = ollama
+    except TimeoutError:
+        logger.warning("Ollama availability check timed out")
 
 
 def _select_provider(registry: dict, tier: str):
@@ -110,6 +125,27 @@ def _bootstrap(db_path: str | None = None) -> str:
         sync_skills_to_db(conn)
 
     return db_path
+
+
+def _safe_json_loads(raw: Any, fallback: Any = None) -> Any:
+    """Parse JSON safely, returning fallback on any error."""
+    if fallback is None:
+        fallback = {}
+    if not raw:
+        return fallback
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+
+def _clamp_limit(value: Any, default: int = 50, maximum: int = 500) -> int:
+    """Validate and clamp a limit parameter to a sane range."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, maximum))
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +206,9 @@ app = FastAPI(title="Neo Server", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -210,8 +246,8 @@ async def rpc_endpoint(request: Request):
 
     try:
         req = RpcRequest(**body)
-    except Exception as e:
-        return JSONResponse(_rpc_error(_INVALID_REQUEST, str(e), body.get("id")))
+    except Exception:
+        return JSONResponse(_rpc_error(_INVALID_REQUEST, "Invalid request", body.get("id")))
 
     handler = _RPC_METHODS.get(req.method)
     if handler is None:
@@ -222,62 +258,69 @@ async def rpc_endpoint(request: Request):
     try:
         result = await handler(req.params or {})
         return JSONResponse(_rpc_ok(result, req.id))
-    except TypeError as e:
+    except (TypeError, ValueError) as e:
         return JSONResponse(_rpc_error(_INVALID_PARAMS, str(e), req.id))
-    except Exception as e:
+    except Exception:
         logger.exception("RPC handler error for %s", req.method)
-        return JSONResponse(_rpc_error(_INTERNAL_ERROR, str(e), req.id))
+        return JSONResponse(_rpc_error(_INTERNAL_ERROR, "Internal server error", req.id))
 
 
 # ---------------------------------------------------------------------------
 # RPC method implementations
+#
+# All DB operations use asyncio.to_thread() to avoid blocking the event loop,
+# since sqlite3 is synchronous and not thread-safe with async.
 # ---------------------------------------------------------------------------
 
 async def _rpc_health(_params: dict) -> dict:
     return {"status": "ok", "providers": list(_registry.keys())}
 
 
-async def _rpc_execute(params: dict) -> dict:
-    """Execute a command through the orchestrator."""
-    command = params.get("command", "").strip()
-    if not command:
-        raise ValueError("Missing 'command' parameter")
-
-    session_id = params.get("session_id", str(uuid.uuid4()))
-
+def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -> dict:
+    """Synchronous execute logic — runs in a thread via asyncio.to_thread()."""
     tier = route(command)
     clean_command = strip_override(command)
-    provider = _select_provider(_registry, tier)
+    provider = _select_provider(registry, tier)
 
     if provider is None:
-        return {"status": "error", "message": "No LLM provider available."}
+        return {
+            "status": "error", "message": "No LLM provider available.",
+            "tool_used": "", "tool_result": None, "model_used": "",
+            "routed_tier": tier, "duration_ms": 0, "session_id": session_id,
+        }
 
-    with get_session(_db_path) as conn:
-        skill_name, skill_content = route_skill_with_name(clean_command, conn)
+    # We need an event loop for the async process() call inside the thread.
+    # Create a new loop since we're in a thread.
+    loop = asyncio.new_event_loop()
+    try:
+        with get_session(db_path) as conn:
+            skill_name, skill_content = route_skill_with_name(clean_command, conn)
 
-        history = get_conversation(conn, session_id, limit=20)
-        messages = [{"role": h["role"], "content": h["content"]} for h in history]
-        messages.append({"role": "user", "content": clean_command})
+            history = get_conversation(conn, session_id, limit=20)
+            messages = [{"role": h["role"], "content": h["content"]} for h in history]
+            messages.append({"role": "user", "content": clean_command})
 
-        result = await process(
-            clean_command,
-            provider,
-            conn,
-            skill_content,
-            skill_name=skill_name,
-            routed_tier=tier,
-            messages=messages,
-        )
-
-        add_message(conn, session_id, "user", clean_command)
-        if result["status"] == "success":
-            add_message(
+            result = loop.run_until_complete(process(
+                clean_command,
+                provider,
                 conn,
-                session_id,
-                "assistant",
-                result["message"],
-                model_used=result["model_used"],
-            )
+                skill_content,
+                skill_name=skill_name,
+                routed_tier=tier,
+                messages=messages,
+            ))
+
+            add_message(conn, session_id, "user", clean_command)
+            if result["status"] == "success":
+                add_message(
+                    conn,
+                    session_id,
+                    "assistant",
+                    result["message"],
+                    model_used=result["model_used"],
+                )
+    finally:
+        loop.close()
 
     return {
         "status": result["status"],
@@ -291,6 +334,21 @@ async def _rpc_execute(params: dict) -> dict:
     }
 
 
+async def _rpc_execute(params: dict) -> dict:
+    """Execute a command through the orchestrator."""
+    command = params.get("command", "").strip()
+    if not command:
+        raise ValueError("Missing 'command' parameter")
+    if len(command) > _MAX_COMMAND_LENGTH:
+        raise ValueError(f"Command too long (max {_MAX_COMMAND_LENGTH} chars)")
+
+    session_id = params.get("session_id") or str(uuid.uuid4())
+
+    return await asyncio.to_thread(
+        _execute_sync, command, session_id, _db_path, _registry,
+    )
+
+
 async def _rpc_conversation_new(_params: dict) -> dict:
     """Create a new conversation session."""
     session_id = str(uuid.uuid4())
@@ -299,18 +357,21 @@ async def _rpc_conversation_new(_params: dict) -> dict:
 
 async def _rpc_conversation_list(_params: dict) -> dict:
     """List recent conversation sessions."""
-    with get_session(_db_path) as conn:
-        rows = conn.execute(
-            """SELECT session_id,
-                      MIN(created_at) AS started_at,
-                      MAX(created_at) AS last_message_at,
-                      COUNT(*) AS message_count
-               FROM conversations
-               GROUP BY session_id
-               ORDER BY MAX(created_at) DESC
-               LIMIT 50"""
-        ).fetchall()
-        sessions = [dict(r) for r in rows]
+    def _query():
+        with get_session(_db_path) as conn:
+            rows = conn.execute(
+                """SELECT session_id,
+                          MIN(created_at) AS started_at,
+                          MAX(created_at) AS last_message_at,
+                          COUNT(*) AS message_count
+                   FROM conversations
+                   GROUP BY session_id
+                   ORDER BY MAX(created_at) DESC
+                   LIMIT 50"""
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    sessions = await asyncio.to_thread(_query)
     return {"sessions": sessions}
 
 
@@ -320,18 +381,24 @@ async def _rpc_conversation_load(params: dict) -> dict:
     if not session_id:
         raise ValueError("Missing 'session_id' parameter")
 
-    limit = params.get("limit", 50)
-    with get_session(_db_path) as conn:
-        messages = get_conversation(conn, session_id, limit=limit)
+    limit = _clamp_limit(params.get("limit", 50))
+
+    def _query():
+        with get_session(_db_path) as conn:
+            return get_conversation(conn, session_id, limit=limit)
+
+    messages = await asyncio.to_thread(_query)
     return {"session_id": session_id, "messages": messages}
 
 
 async def _rpc_skills_list(_params: dict) -> dict:
     """List all skills (enabled and disabled)."""
-    with get_session(_db_path) as conn:
-        # Get all skills, not just enabled
-        rows = conn.execute("SELECT * FROM skills ORDER BY name").fetchall()
-        skills = [dict(r) for r in rows]
+    def _query():
+        with get_session(_db_path) as conn:
+            rows = conn.execute("SELECT * FROM skills ORDER BY name").fetchall()
+            return [dict(r) for r in rows]
+
+    skills = await asyncio.to_thread(_query)
     return {"skills": skills}
 
 
@@ -342,48 +409,59 @@ async def _rpc_skills_toggle(params: dict) -> dict:
     if not name:
         raise ValueError("Missing 'name' parameter")
 
-    with get_session(_db_path) as conn:
-        updated = toggle_skill(conn, name, enabled)
+    def _update():
+        with get_session(_db_path) as conn:
+            return toggle_skill(conn, name, enabled)
+
+    updated = await asyncio.to_thread(_update)
     return {"updated": updated, "name": name, "enabled": enabled}
 
 
 async def _rpc_actions_recent(params: dict) -> dict:
     """Get recent action log entries."""
-    limit = params.get("limit", 50)
-    with get_session(_db_path) as conn:
-        actions = get_recent_actions(conn, limit=limit)
+    limit = _clamp_limit(params.get("limit", 50))
+
+    def _query():
+        with get_session(_db_path) as conn:
+            return get_recent_actions(conn, limit=limit)
+
+    actions = await asyncio.to_thread(_query)
     return {"actions": actions}
 
 
 async def _rpc_settings_get(_params: dict) -> dict:
     """Get user profile and settings."""
-    with get_session(_db_path) as conn:
-        profile = get_user_profile(conn)
+    def _query():
+        with get_session(_db_path) as conn:
+            return get_user_profile(conn)
+
+    profile = await asyncio.to_thread(_query)
     if profile:
-        # Parse JSON fields for the frontend
-        profile["preferences"] = json.loads(profile.get("preferences", "{}") or "{}")
-        profile["tool_paths"] = json.loads(profile.get("tool_paths", "{}") or "{}")
+        profile["preferences"] = _safe_json_loads(profile.get("preferences"))
+        profile["tool_paths"] = _safe_json_loads(profile.get("tool_paths"))
     return {"profile": profile}
 
 
 async def _rpc_settings_update(params: dict) -> dict:
     """Update user profile settings."""
-    with get_session(_db_path) as conn:
-        profile = get_user_profile(conn)
-        if not profile:
-            raise ValueError("No user profile found")
+    def _update():
+        with get_session(_db_path) as conn:
+            profile = get_user_profile(conn)
+            if not profile:
+                raise ValueError("No user profile found")
 
-        name = params.get("name", profile["name"])
-        role = params.get("role", profile.get("role", ""))
+            name = params.get("name", profile["name"])
+            role = params.get("role", profile.get("role", ""))
 
-        existing_prefs = json.loads(profile.get("preferences", "{}") or "{}")
-        existing_paths = json.loads(profile.get("tool_paths", "{}") or "{}")
+            existing_prefs = _safe_json_loads(profile.get("preferences"))
+            existing_paths = _safe_json_loads(profile.get("tool_paths"))
 
-        preferences = {**existing_prefs, **params.get("preferences", {})}
-        tool_paths = {**existing_paths, **params.get("tool_paths", {})}
+            preferences = {**existing_prefs, **params.get("preferences", {})}
+            tool_paths = {**existing_paths, **params.get("tool_paths", {})}
 
-        upsert_user_profile(conn, name, role, preferences, tool_paths)
+            upsert_user_profile(conn, name, role, preferences, tool_paths)
 
+    await asyncio.to_thread(_update)
     return {"updated": True}
 
 

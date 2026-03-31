@@ -145,6 +145,8 @@ export default function FloatingBar() {
         {/* Result display */}
         {lastResult && (
           <div
+            role="status"
+            aria-live="polite"
             className={`px-4 py-2 border-t border-border text-xs truncate ${
               lastResult.status === "success"
                 ? "text-emerald-400"

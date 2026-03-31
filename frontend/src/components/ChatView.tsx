@@ -11,6 +11,7 @@ export default function ChatView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const submittingRef = useRef(false);
   const loading = useNeoStore((s) => s.loading);
   const setLoading = useNeoStore((s) => s.setLoading);
   const messages = useNeoStore((s) => s.messages);
@@ -33,7 +34,8 @@ export default function ChatView() {
 
   const handleSend = useCallback(async () => {
     const cmd = input.trim();
-    if (!cmd || loading) return;
+    if (!cmd || loading || submittingRef.current) return;
+    submittingRef.current = true;
 
     // Ensure we have a session
     let sid = sessionId;
@@ -85,6 +87,7 @@ export default function ChatView() {
       addMessage(errorMsg);
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   }, [input, loading, sessionId, addMessage, setSessionId, setLoading]);
 

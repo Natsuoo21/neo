@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ClipboardList, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
@@ -16,11 +16,16 @@ export default function ActionLog() {
       .catch(console.error);
   }, [setActions]);
 
-  const filtered = actions.filter(
-    (a) =>
-      a.input_text.toLowerCase().includes(search.toLowerCase()) ||
-      a.tool_used.toLowerCase().includes(search.toLowerCase()) ||
-      a.model_used.toLowerCase().includes(search.toLowerCase()),
+  const searchLower = search.toLowerCase();
+  const filtered = useMemo(
+    () =>
+      actions.filter(
+        (a) =>
+          a.input_text.toLowerCase().includes(searchLower) ||
+          a.tool_used.toLowerCase().includes(searchLower) ||
+          a.model_used.toLowerCase().includes(searchLower),
+      ),
+    [actions, searchLower],
   );
 
   return (

@@ -33,8 +33,10 @@ function App() {
     return () => clearInterval(interval);
   }, [setConnected]);
 
-  // Register global hotkey
+  // Register global hotkey — only from main window to avoid double registration
   useEffect(() => {
+    if (windowLabel !== "main") return;
+
     registerHotkeys(async () => {
       try {
         const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -47,7 +49,7 @@ function App() {
         console.warn("Hotkey handler error:", err);
       }
     });
-  }, []);
+  }, [windowLabel]);
 
   if (windowLabel === "floating-bar") {
     return <FloatingBar />;
