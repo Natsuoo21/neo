@@ -10,16 +10,18 @@ from neo.skills.loader import (
 
 
 class TestNewSkillsLoaded:
-    def test_six_total_skills(self):
+    def test_eight_total_skills(self):
         skills = load_all_skills()
         names = {s["name"] for s in skills}
-        assert len(skills) == 6
+        assert len(skills) == 8
         assert "email_writer" in names
         assert "meeting_notes" in names
         assert "spreadsheet_builder" in names
         assert "word_document" in names
         assert "file_organizer" in names
         assert "research_synthesis" in names
+        assert "obsidian_note" in names
+        assert "presentation_builder" in names
 
     def test_word_document_skill_has_correct_task_types(self):
         skills = load_all_skills()
@@ -106,7 +108,7 @@ class TestListSkills:
         sync_skills_to_db(memory_db)
         memory_db.commit()
         skills = list_skills(memory_db)
-        assert len(skills) == 6
+        assert len(skills) == 8
 
     def test_disabled_not_listed(self, memory_db):
         sync_skills_to_db(memory_db)
@@ -114,4 +116,4 @@ class TestListSkills:
         toggle_skill(memory_db, "email_writer", enabled=False)
         memory_db.commit()
         skills = list_skills(memory_db)
-        assert len(skills) == 5
+        assert len(skills) == 7

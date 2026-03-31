@@ -63,8 +63,8 @@ neo/
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| 0 | Foundations + CLI + Tools | In Progress |
-| 1 | Intelligence Routing + Memory | Planned |
+| 0 | Foundations + CLI + Tools | Complete |
+| 1 | Intelligence Routing + Memory | Complete |
 | 2 | Desktop Interface (Tauri) | Planned |
 | 3 | Automation + Browser Control | Planned |
 | 4 | Voice + Plugins + Installer | Planned |
