@@ -182,6 +182,7 @@ def _truncate_history(
 CONTEXT_BUDGETS: dict[str, int] = {
     "ollama": 4_000,
     "gemini": 30_000,
+    "openai": 128_000,
     "claude": 100_000,
     "mock": 100_000,
 }

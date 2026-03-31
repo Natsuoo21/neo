@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 
 
 class LLMProvider(ABC):
-    """Abstract base for all LLM providers (Claude, Gemini, Ollama)."""
+    """Abstract base for all LLM providers (Claude, OpenAI, Gemini, Ollama)."""
 
     @abstractmethod
     async def complete(self, system: str, user: str) -> str:

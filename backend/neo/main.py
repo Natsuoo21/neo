@@ -12,13 +12,13 @@ from neo.memory.db import get_session, init_schema
 from neo.memory.models import add_message, get_conversation
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
-from neo.router import CLAUDE, GEMINI, LOCAL, route, strip_override
+from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db
 
 logger = logging.getLogger(__name__)
 
 # Fallback order when the selected tier is unavailable
-_FALLBACK_CHAIN = [LOCAL, GEMINI, CLAUDE]
+_FALLBACK_CHAIN = [LOCAL, GEMINI, OPENAI, CLAUDE]
 
 
 def _build_provider_registry() -> dict:
@@ -31,6 +31,13 @@ def _build_provider_registry() -> dict:
         from neo.llm.claude import ClaudeProvider
 
         registry[CLAUDE] = ClaudeProvider(api_key=claude_key)
+
+    # OpenAI (requires API key)
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        from neo.llm.openai_provider import OpenAIProvider
+
+        registry[OPENAI] = OpenAIProvider(api_key=openai_key)
 
     # Gemini (requires API key)
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
@@ -106,7 +113,7 @@ async def _async_main() -> None:
         from neo.llm.mock import MockProvider
 
         print("[!] No providers available. Running in offline mode (mock responses).")
-        print("    Set CLAUDE_API_KEY or GEMINI_API_KEY, or install Ollama.\n")
+        print("    Set CLAUDE_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY, or install Ollama.\n")
         registry[CLAUDE] = MockProvider(
             text_response="I'm running in offline mode. Set an API key to enable AI.",
             tool_response={"type": "text", "content": "Offline mode — no tool execution."},

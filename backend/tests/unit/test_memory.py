@@ -70,6 +70,7 @@ class TestContextBudgets:
     def test_budgets_defined(self):
         assert "ollama" in CONTEXT_BUDGETS
         assert "gemini" in CONTEXT_BUDGETS
+        assert "openai" in CONTEXT_BUDGETS
         assert "claude" in CONTEXT_BUDGETS
         assert "mock" in CONTEXT_BUDGETS
 

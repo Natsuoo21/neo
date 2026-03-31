@@ -1,6 +1,6 @@
 """Neo Complexity Router — Decides which LLM handles each request.
 
-Routes: LOCAL (Ollama) | GEMINI (free tier) | CLAUDE (paid API)
+Routes: LOCAL (Ollama) | GEMINI (free tier) | OPENAI (paid) | CLAUDE (paid)
 
 Routing strategy:
 1. @model override prefix (e.g., "@claude rename file") → forced tier
@@ -8,12 +8,13 @@ Routing strategy:
 3. Token count heuristic for short commands
 4. Default to Claude for complex/unknown tasks
 
-Fallback chain: LOCAL → GEMINI → CLAUDE (if selected tier is unavailable)
+Fallback chain: LOCAL → GEMINI → OPENAI → CLAUDE (if selected tier is unavailable)
 """
 
 # Tier constants
 LOCAL = "LOCAL"
 GEMINI = "GEMINI"
+OPENAI = "OPENAI"
 CLAUDE = "CLAUDE"
 
 # Fast-route keywords — no LLM needed to decide
@@ -53,7 +54,7 @@ _GEMINI_KEYWORDS = frozenset(
     }
 )
 
-_OVERRIDE_PREFIXES = ("@claude ", "@local ", "@gemini ")
+_OVERRIDE_PREFIXES = ("@claude ", "@openai ", "@local ", "@gemini ")
 
 
 def route(command: str, token_count: int = 0) -> str:
@@ -64,11 +65,13 @@ def route(command: str, token_count: int = 0) -> str:
         token_count: Estimated token count of the full context (optional).
 
     Returns:
-        'LOCAL', 'GEMINI', or 'CLAUDE'
+        'LOCAL', 'GEMINI', 'OPENAI', or 'CLAUDE'
     """
     # 1. Check @model override prefix
     if command.startswith("@claude "):
         return CLAUDE
+    if command.startswith("@openai "):
+        return OPENAI
     if command.startswith("@local "):
         return LOCAL
     if command.startswith("@gemini "):

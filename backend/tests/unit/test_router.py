@@ -1,6 +1,6 @@
 """Tests for the complexity router — tier selection and override parsing."""
 
-from neo.router import CLAUDE, GEMINI, LOCAL, route, strip_override
+from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
 
 
 class TestLocalRouting:
@@ -58,6 +58,9 @@ class TestOverridePrefix:
     def test_override_claude(self):
         assert route("@claude rename file X") == CLAUDE
 
+    def test_override_openai(self):
+        assert route("@openai write a strategy") == OPENAI
+
     def test_override_local(self):
         assert route("@local write a strategy") == LOCAL
 
@@ -81,6 +84,9 @@ class TestTokenCountHeuristic:
 class TestStripOverride:
     def test_strips_claude_prefix(self):
         assert strip_override("@claude rename file") == "rename file"
+
+    def test_strips_openai_prefix(self):
+        assert strip_override("@openai write strategy") == "write strategy"
 
     def test_strips_local_prefix(self):
         assert strip_override("@local write strategy") == "write strategy"
