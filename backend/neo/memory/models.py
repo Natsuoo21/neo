@@ -128,6 +128,7 @@ def log_action(
     skill_used: str = "",
     tool_used: str = "",
     model_used: str = "",
+    routed_tier: str = "",
     result: dict | None = None,
     status: str = "success",
     duration_ms: int = 0,
@@ -137,14 +138,16 @@ def log_action(
     """Log an action execution. Returns log entry ID."""
     conn.execute(
         """INSERT INTO action_log
-           (input_text, intent, skill_used, tool_used, model_used, result, status, duration_ms, tokens_used, cost_brl)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (input_text, intent, skill_used, tool_used, model_used, routed_tier,
+            result, status, duration_ms, tokens_used, cost_brl)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             input_text,
             intent,
             skill_used,
             tool_used,
             model_used,
+            routed_tier,
             json.dumps(result or {}),
             status,
             duration_ms,
@@ -168,6 +171,48 @@ def get_actions_by_tool(conn: sqlite3.Connection, tool_name: str, limit: int = 5
         (tool_name, limit),
     ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def detect_patterns(conn: sqlite3.Connection, days: int = 14, min_count: int = 3) -> list[dict]:
+    """Detect repeated command patterns in the action_log.
+
+    Looks for similar commands executed >= min_count times in the last N days.
+    Groups by the first 3 significant words (lowercased) to find repetitions.
+
+    Returns:
+        List of dicts with keys: pattern, count, last_run, sample_input.
+    """
+    rows = conn.execute(
+        """SELECT input_text, created_at FROM action_log
+           WHERE status = 'success'
+             AND created_at >= datetime('now', ?)
+           ORDER BY created_at DESC""",
+        (f"-{days} days",),
+    ).fetchall()
+
+    # Group by normalized pattern (first 3 significant words)
+    pattern_map: dict[str, list[dict]] = {}
+    for row in rows:
+        d = _row_to_dict(row)
+        words = d["input_text"].lower().split()[:3]
+        key = " ".join(words) if words else ""
+        if not key:
+            continue
+        pattern_map.setdefault(key, []).append(d)
+
+    results = []
+    for pattern, entries in pattern_map.items():
+        if len(entries) >= min_count:
+            results.append(
+                {
+                    "pattern": pattern,
+                    "count": len(entries),
+                    "last_run": entries[0]["created_at"],
+                    "sample_input": entries[0]["input_text"],
+                }
+            )
+
+    return sorted(results, key=lambda x: x["count"], reverse=True)
 
 
 # ============================================

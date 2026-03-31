@@ -188,10 +188,23 @@ CONTEXT_BUDGETS: dict[str, int] = {
 }
 
 
+_GEMINI_RESEARCH_PROMPT = (
+    "\n## Research Mode\n"
+    "You are optimised for research and information synthesis. Follow these guidelines:\n"
+    "- Provide well-structured answers with clear sections and headings.\n"
+    "- When comparing items, use tables or side-by-side analysis.\n"
+    "- Cite sources or reasoning for factual claims.\n"
+    "- Summarise key findings in an executive summary at the top.\n"
+    "- If information is uncertain, say so explicitly rather than guessing.\n"
+    "- Prefer depth over breadth — thorough analysis of fewer points beats shallow coverage of many."
+)
+
+
 def build_system_prompt(
     conn: sqlite3.Connection,
     skill_content: str = "",
     project_id: int | None = None,
+    routed_tier: str = "",
 ) -> str:
     """Assemble the system prompt from user profile + skill + project.
 
@@ -199,7 +212,8 @@ def build_system_prompt(
     1. Base Neo instructions
     2. User profile (name, role, preferences, tool paths)
     3. Active project context (if provided)
-    4. Skill instructions (if a matching skill was found)
+    4. Research mode instructions (if routed to Gemini)
+    5. Skill instructions (if a matching skill was found)
     """
     parts = [
         "You are Neo, a personal intelligence agent. "
@@ -239,6 +253,10 @@ def build_system_prompt(
                 f"- Goals: {goals_str}\n"
                 f"- Conventions: {conv_str}"
             )
+
+    # Inject research mode for Gemini
+    if routed_tier == "GEMINI":
+        parts.append(_GEMINI_RESEARCH_PROMPT)
 
     # Inject skill
     if skill_content:
@@ -287,7 +305,12 @@ async def process(
         # STAGE 1: RECEIVE (already done — command is the input)
 
         # STAGE 4: SKILL (loaded before calling process)
-        system_prompt = build_system_prompt(conn, skill_content, project_id=project_id)
+        system_prompt = build_system_prompt(
+            conn,
+            skill_content,
+            project_id=project_id,
+            routed_tier=routed_tier,
+        )
 
         # Truncate history to fit within context budget
         provider_name = provider.name()
@@ -345,6 +368,7 @@ async def process(
             skill_used=skill_name,
             tool_used=result["tool_used"],
             model_used=result["model_used"],
+            routed_tier=result["routed_tier"],
             result={"message": result["message"], "tool_result": result["tool_result"]},
             status=result["status"],
             duration_ms=elapsed_ms,

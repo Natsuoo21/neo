@@ -208,6 +208,66 @@ def route_skill_with_name(command: str, conn: sqlite3.Connection) -> tuple[str, 
     return "", ""
 
 
+def create_user_skill(
+    conn: sqlite3.Connection,
+    name: str,
+    description: str,
+    task_types: list[str],
+    content: str,
+    tools: list[str] | None = None,
+) -> str:
+    """Create a user skill file in the user/ directory and register it in DB.
+
+    Args:
+        conn: SQLite connection.
+        name: Skill name (used as filename, e.g., 'monthly_report').
+        description: What this skill does.
+        task_types: Keywords that trigger this skill.
+        content: Markdown body with LLM instructions.
+        tools: Optional list of tools this skill uses.
+
+    Returns:
+        Path to the created skill file.
+    """
+    import re
+
+    # Sanitize name for filename
+    safe_name = re.sub(r"[^a-z0-9_]", "_", name.lower().strip())
+    if not safe_name:
+        raise ValueError("Skill name cannot be empty.")
+
+    os.makedirs(_USER_SKILLS_DIR, exist_ok=True)
+    file_path = os.path.join(_USER_SKILLS_DIR, f"{safe_name}.md")
+
+    # Build skill file content
+    tools_list = tools or []
+    frontmatter = (
+        f"---\n"
+        f"name: {safe_name}\n"
+        f"description: {description}\n"
+        f"task_types: [{', '.join(task_types)}]\n"
+        f"tools: [{', '.join(tools_list)}]\n"
+        f"---\n"
+    )
+    full_content = frontmatter + "\n" + content.strip() + "\n"
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(full_content)
+
+    # Register in DB
+    upsert_skill(
+        conn,
+        name=safe_name,
+        file_path=file_path,
+        skill_type="user",
+        description=description,
+        task_types=task_types,
+    )
+
+    logger.info("Created user skill '%s' at %s", safe_name, file_path)
+    return file_path
+
+
 def route_skill(command: str, conn: sqlite3.Connection) -> str:
     """Match a user command to the best skill and return its content.
 

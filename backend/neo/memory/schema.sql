@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS action_log (
     intent      TEXT,
     skill_used  TEXT,
     tool_used   TEXT,
-    model_used  TEXT,           -- ollama / gemini / claude
+    model_used  TEXT,           -- ollama / gemini / openai / claude
+    routed_tier TEXT,           -- LOCAL / GEMINI / OPENAI / CLAUDE
     result      TEXT,           -- JSON: outcome details
     status      TEXT DEFAULT 'success',  -- success / error / cancelled
     duration_ms INTEGER,
