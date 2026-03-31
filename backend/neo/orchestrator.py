@@ -14,7 +14,7 @@ import time
 from typing import TypedDict
 
 from neo.llm.provider import LLMProvider
-from neo.memory.models import get_user_profile, log_action
+from neo.memory.models import get_project, get_user_profile, log_action
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ class ProcessResult(TypedDict):
     tool_used: str
     tool_result: str | None
     model_used: str
+    routed_tier: str
     duration_ms: int
 
 
@@ -137,13 +138,57 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
 }
 
 
-def build_system_prompt(conn: sqlite3.Connection, skill_content: str = "") -> str:
-    """Assemble the system prompt from user profile + skill.
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token."""
+    return len(text) // 4
+
+
+def _truncate_history(
+    messages: list[dict],
+    max_tokens: int,
+    reserved_tokens: int,
+) -> list[dict]:
+    """Drop oldest messages to fit within budget.
+
+    Always keeps the last message (current user command).
+    """
+    budget = max_tokens - reserved_tokens
+    if budget <= 0:
+        return messages[-1:] if messages else []
+
+    result: list[dict] = []
+    total = 0
+    for msg in reversed(messages):
+        msg_tokens = _estimate_tokens(msg.get("content", ""))
+        if total + msg_tokens > budget:
+            break
+        result.append(msg)
+        total += msg_tokens
+
+    return list(reversed(result))
+
+
+# Default context budgets per model tier (in estimated tokens)
+CONTEXT_BUDGETS: dict[str, int] = {
+    "ollama": 4_000,
+    "gemini": 30_000,
+    "claude": 100_000,
+    "mock": 100_000,
+}
+
+
+def build_system_prompt(
+    conn: sqlite3.Connection,
+    skill_content: str = "",
+    project_id: int | None = None,
+) -> str:
+    """Assemble the system prompt from user profile + skill + project.
 
     Components:
     1. Base Neo instructions
     2. User profile (name, role, preferences, tool paths)
-    3. Skill instructions (if a matching skill was found)
+    3. Active project context (if provided)
+    4. Skill instructions (if a matching skill was found)
     """
     parts = [
         "You are Neo, a personal intelligence agent. "
@@ -168,6 +213,22 @@ def build_system_prompt(conn: sqlite3.Connection, skill_content: str = "") -> st
             f"- Obsidian vault: {tools.get('obsidian_vault', 'not configured')}"
         )
 
+    # Inject project context
+    if project_id is not None:
+        project = get_project(conn, project_id)
+        if project:
+            goals = json.loads(project.get("goals", "[]") or "[]")
+            conventions = json.loads(project.get("conventions", "{}") or "{}")
+            goals_str = ", ".join(goals) if goals else "none"
+            conv_str = json.dumps(conventions) if conventions else "none"
+            parts.append(
+                f"\n## Active Project\n"
+                f"- Name: {project['name']}\n"
+                f"- Description: {project.get('description', '')}\n"
+                f"- Goals: {goals_str}\n"
+                f"- Conventions: {conv_str}"
+            )
+
     # Inject skill
     if skill_content:
         parts.append(f"\n## Skill Instructions\n{skill_content}")
@@ -181,11 +242,21 @@ async def process(
     conn: sqlite3.Connection,
     skill_content: str = "",
     skill_name: str = "",
+    routed_tier: str = "",
+    messages: list[dict] | None = None,
+    project_id: int | None = None,
 ) -> ProcessResult:
     """Process a user command through the full 6-stage lifecycle.
 
-    Note: Does NOT commit to the database — the caller's context manager
-    (get_session) owns the transaction boundary.
+    Args:
+        command: The user's raw command.
+        provider: LLM provider to use.
+        conn: SQLite connection (caller owns transaction).
+        skill_content: Matched skill instructions.
+        skill_name: Matched skill name for logging.
+        routed_tier: Which tier was selected (LOCAL/GEMINI/CLAUDE).
+        messages: Conversation history (list of role/content dicts).
+        project_id: Active project ID for context injection.
 
     Returns:
         ProcessResult with status, message, tool_used, model_used, duration_ms
@@ -197,6 +268,7 @@ async def process(
         "tool_used": "",
         "tool_result": None,
         "model_used": provider.name(),
+        "routed_tier": routed_tier,
         "duration_ms": 0,
     }
 
@@ -204,16 +276,23 @@ async def process(
         # STAGE 1: RECEIVE (already done — command is the input)
 
         # STAGE 4: SKILL (loaded before calling process)
-        system_prompt = build_system_prompt(conn, skill_content)
+        system_prompt = build_system_prompt(conn, skill_content, project_id=project_id)
 
-        # STAGE 3: ROUTE (for now, use the provider passed in; P1 adds router)
-        # Note: Conversation history will be integrated in P1.
+        # Truncate history to fit within context budget
+        provider_name = provider.name()
+        max_tokens = CONTEXT_BUDGETS.get(provider_name, 100_000)
+        reserved = _estimate_tokens(system_prompt)
+
+        truncated_messages: list[dict] | None = None
+        if messages:
+            truncated_messages = _truncate_history(messages, max_tokens, reserved)
 
         # STAGE 2+5: PARSE + EXECUTE via tool use
         llm_response = await provider.complete_with_tools(
             system=system_prompt,
             user=command,
             tools=TOOL_DEFINITIONS,
+            messages=truncated_messages,
         )
 
         if llm_response["type"] == "tool_use":

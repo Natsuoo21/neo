@@ -155,6 +155,26 @@ def sync_skills_to_db(conn: sqlite3.Connection) -> int:
     return count
 
 
+def list_skills(conn: sqlite3.Connection) -> list[dict]:
+    """Return all skills with their enabled status."""
+    return get_enabled_skills(conn)
+
+
+def toggle_skill(conn: sqlite3.Connection, skill_name: str, enabled: bool) -> bool:
+    """Enable or disable a skill by name.
+
+    Returns True if a skill was updated, False if not found.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE skills SET is_enabled=?, updated_at=? WHERE name=?",
+        (1 if enabled else 0, now, skill_name),
+    )
+    return conn.total_changes > 0
+
+
 def route_skill_with_name(command: str, conn: sqlite3.Connection) -> tuple[str, str]:
     """Match a user command to the best skill and return (name, content).
 

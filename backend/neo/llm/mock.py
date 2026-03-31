@@ -15,6 +15,7 @@ class MockProvider(LLMProvider):
         self.last_system: str = ""
         self.last_user: str = ""
         self.last_tools: list[dict] = []
+        self.last_messages: list[dict] | None = None
         self.call_count: int = 0
 
     async def complete(self, system: str, user: str) -> str:
@@ -23,10 +24,17 @@ class MockProvider(LLMProvider):
         self.call_count += 1
         return self._text_response
 
-    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+    async def complete_with_tools(
+        self,
+        system: str,
+        user: str,
+        tools: list[dict],
+        messages: list[dict] | None = None,
+    ) -> dict:
         self.last_system = system
         self.last_user = user
         self.last_tools = tools
+        self.last_messages = messages
         self.call_count += 1
         return self._tool_response
 

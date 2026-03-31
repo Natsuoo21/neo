@@ -17,8 +17,22 @@ class LLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+    async def complete_with_tools(
+        self,
+        system: str,
+        user: str,
+        tools: list[dict],
+        messages: list[dict] | None = None,
+    ) -> dict:
         """Send a completion request with tool definitions.
+
+        Args:
+            system: System prompt.
+            user: Current user message (used if messages is None).
+            tools: Tool definitions.
+            messages: Optional conversation history. If provided, use these
+                      instead of building a single-user-message list.
+                      Each dict has "role" and "content" keys.
 
         Returns a dict with:
           - "type": "text" | "tool_use"

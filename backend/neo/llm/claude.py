@@ -61,9 +61,16 @@ class ClaudeProvider(LLMProvider):
 
         return ""  # unreachable, satisfies type checker
 
-    async def complete_with_tools(self, system: str, user: str, tools: list[dict]) -> dict:
+    async def complete_with_tools(
+        self,
+        system: str,
+        user: str,
+        tools: list[dict],
+        messages: list[dict] | None = None,
+    ) -> dict:
         """Send a completion request with tool definitions to Claude."""
         client = self._get_client()
+        msg_list: list = messages if messages else [{"role": "user", "content": user}]
 
         for attempt in range(1, _MAX_RETRIES + 1):
             try:
@@ -71,7 +78,7 @@ class ClaudeProvider(LLMProvider):
                     model=self._model,
                     max_tokens=4096,
                     system=system,
-                    messages=[{"role": "user", "content": user}],
+                    messages=msg_list,
                     tools=tools,  # type: ignore[arg-type]
                 )
                 self._track_usage(response.usage)
