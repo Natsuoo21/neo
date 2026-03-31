@@ -1,0 +1,14 @@
+{
+    "name": "Andre",
+    "role": "Professional",
+    "preferences": {
+        "language": "en",
+        "timezone": "America/Sao_Paulo",
+        "writing_style": "professional"
+    },
+    "tool_paths": {
+        "obsidian_vault": "",
+        "default_save_dir": "~/Documents/Neo",
+        "downloads_dir": "~/Downloads"
+    }
+}
