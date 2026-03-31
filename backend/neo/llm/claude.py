@@ -45,7 +45,7 @@ class ClaudeProvider(LLMProvider):
                     messages=[{"role": "user", "content": user}],
                 )
                 self._track_usage(response.usage)
-                return response.content[0].text
+                return response.content[0].text  # type: ignore[union-attr]
             except APIError as e:
                 if attempt == _MAX_RETRIES:
                     logger.error("Claude API failed after %d attempts: %s", _MAX_RETRIES, e)
@@ -69,7 +69,7 @@ class ClaudeProvider(LLMProvider):
                     max_tokens=4096,
                     system=system,
                     messages=[{"role": "user", "content": user}],
-                    tools=tools,
+                    tools=tools,  # type: ignore[arg-type]
                 )
                 self._track_usage(response.usage)
                 return self._parse_tool_response(response)

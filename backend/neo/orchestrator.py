@@ -221,10 +221,10 @@ async def process(
             input_text=command,
             intent="",
             skill_used=skill_content[:50] if skill_content else "",
-            tool_used=result["tool_used"],
-            model_used=result["model_used"],
+            tool_used=str(result["tool_used"]),
+            model_used=str(result["model_used"]),
             result={"message": result["message"], "tool_result": result["tool_result"]},
-            status=result["status"],
+            status=str(result["status"]),
             duration_ms=elapsed_ms,
         )
         conn.commit()
