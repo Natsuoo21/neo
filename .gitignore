@@ -1,0 +1,63 @@
+# Environment
+.env
+.env.development
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Database
+*.db
+*.sqlite3
+data/*.db
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Tauri
+frontend/src-tauri/target/
+
+# Rust
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.Zone.Identifier
+
+# Installer output
+installer/Output/
+*.exe
+
+# Logs
+*.log
+logs/
+
+# Whisper models (large)
+models/

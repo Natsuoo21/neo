@@ -1,0 +1,30 @@
+[project]
+name = "neo"
+version = "0.1.0"
+description = "Neo — Personal Intelligence Agent"
+requires-python = ">=3.12"
+readme = "../README.md"
+
+[tool.ruff]
+line-length = 120
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["neo"]
+
+[tool.coverage.report]
+fail_under = 30
+show_missing = true

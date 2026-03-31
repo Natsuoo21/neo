@@ -1,0 +1,31 @@
+# Neo — Production Dependencies
+
+# AI / LLM
+anthropic>=0.40.0
+google-generativeai>=0.8.0
+
+# Document creation
+openpyxl>=3.1.0
+python-pptx>=1.0.0
+python-docx>=1.1.0
+
+# System integration
+pynput>=1.7.0
+watchdog>=4.0.0
+plyer>=2.1.0
+apscheduler>=3.10.0
+
+# Browser automation
+playwright>=1.40.0
+
+# Voice (Phase 4)
+# openai-whisper>=20231117
+# pyttsx3>=2.90
+
+# MCP (Phase 4)
+# mcp>=1.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
