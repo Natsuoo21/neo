@@ -54,17 +54,20 @@ def conn(db_path):
 
 
 class TestSchema:
-    def test_schema_creates_all_6_tables(self, db_path):
+    def test_schema_creates_all_tables(self, db_path):
         init_schema(db_path)
         tables = get_tables(db_path)
-        expected = ["action_log", "automations", "conversations", "projects", "skills", "user_profile"]
+        expected = [
+            "action_log", "automations", "conversations", "projects",
+            "skills", "suggestions", "user_profile",
+        ]
         assert sorted(tables) == expected
 
     def test_schema_is_idempotent(self, db_path):
         init_schema(db_path)
         init_schema(db_path)  # Run again — should not error
         tables = get_tables(db_path)
-        assert len(tables) == 6
+        assert len(tables) == 7
 
     def test_wal_mode_enabled(self, db_path):
         init_schema(db_path)

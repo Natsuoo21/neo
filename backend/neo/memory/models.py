@@ -443,6 +443,62 @@ def get_conversation(conn: sqlite3.Connection, session_id: str, limit: int = 20)
 
 
 # ============================================
+# SUGGESTIONS
+# ============================================
+
+
+def create_suggestion(
+    conn: sqlite3.Connection,
+    pattern: str,
+    message: str,
+    count: int = 0,
+    sample_input: str = "",
+) -> int:
+    """Create a new suggestion. Returns suggestion ID."""
+    conn.execute(
+        "INSERT INTO suggestions (pattern, message, count, sample_input) VALUES (?, ?, ?, ?)",
+        (pattern, message, count, sample_input),
+    )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def get_active_suggestions(conn: sqlite3.Connection) -> list[dict]:
+    """Get non-dismissed, non-accepted suggestions."""
+    rows = conn.execute(
+        "SELECT * FROM suggestions WHERE dismissed = 0 AND accepted = 0 ORDER BY created_at DESC"
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def dismiss_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> bool:
+    """Dismiss a suggestion."""
+    cursor = conn.execute("UPDATE suggestions SET dismissed = 1 WHERE id = ?", (suggestion_id,))
+    return cursor.rowcount > 0
+
+
+def accept_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> dict | None:
+    """Accept a suggestion and return it."""
+    conn.execute("UPDATE suggestions SET accepted = 1 WHERE id = ?", (suggestion_id,))
+    row = conn.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def get_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> dict | None:
+    """Get a single suggestion by ID."""
+    row = conn.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def has_recent_suggestion(conn: sqlite3.Connection, hours: int = 24) -> bool:
+    """Check if a suggestion was created in the last N hours (throttling)."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM suggestions WHERE created_at >= datetime('now', ?)",
+        (f"-{hours} hours",),
+    ).fetchone()
+    return (row["cnt"] if row else 0) > 0
+
+
+# ============================================
 # HELPERS
 # ============================================
 

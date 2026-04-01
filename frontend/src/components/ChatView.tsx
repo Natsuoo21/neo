@@ -3,6 +3,8 @@ import { Send, Loader2 } from "lucide-react";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
 import MessageBubble from "./MessageBubble";
+import SuggestionBanner from "./SuggestionBanner";
+import VoiceButton from "./VoiceButton";
 import type { ChatMessage } from "@/stores/neoStore";
 import type { ConversationNewResult, ExecuteResult } from "@/types/rpc";
 
@@ -100,6 +102,9 @@ export default function ChatView() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Suggestion banner */}
+      <SuggestionBanner />
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {messages.length === 0 ? (
@@ -129,6 +134,7 @@ export default function ChatView() {
       {/* Input area */}
       <div className="border-t border-border p-4">
         <div className="flex items-end gap-2 max-w-3xl mx-auto">
+          <VoiceButton />
           <textarea
             ref={textareaRef}
             value={input}

@@ -113,6 +113,14 @@ export function connectStream(
     }
   });
 
+  source.addEventListener("suggestion", (e) => {
+    try {
+      onEvent("suggestion", JSON.parse(e.data));
+    } catch {
+      onEvent("suggestion", e.data);
+    }
+  });
+
   source.onerror = (e) => {
     onError?.(e);
   };

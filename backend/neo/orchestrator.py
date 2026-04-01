@@ -6,12 +6,17 @@ routes to LLM, executes tool, logs action.
 6-stage lifecycle: RECEIVE → PARSE → ROUTE → SKILL → EXECUTE → CONFIRM
 """
 
+from __future__ import annotations
+
 import importlib
 import json
 import logging
 import sqlite3
 import time
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from neo.plugins.mcp_host import MCPHost
 
 from neo.llm.provider import LLMProvider
 from neo.memory.models import get_project, get_user_profile, log_action
@@ -481,9 +486,24 @@ async def process(
 def dispatch_tool(tool_name: str, tool_input: dict) -> str:
     """Dispatch a tool call to the correct module function.
 
+    Supports both built-in tools (TOOL_REGISTRY) and MCP plugin tools
+    (prefixed with ``plugin_``).  Plugin tools are routed through the
+    global :data:`_mcp_host` if available.
+
     Raises ToolError on failure instead of returning error strings.
     Returns a string describing the result.
     """
+    # Plugin tool dispatch: plugin_{plugin_name}_{tool_name}
+    if tool_name.startswith("plugin_") and _mcp_host is not None:
+        parts = tool_name.split("_", 2)  # ["plugin", plugin_name, tool_name]
+        if len(parts) < 3:
+            raise ToolError(f"Invalid plugin tool name: {tool_name}")
+        plugin_name, plugin_tool = parts[1], parts[2]
+        try:
+            return _mcp_host.call_tool(plugin_name, plugin_tool, tool_input)
+        except Exception as e:
+            raise ToolError(f"Plugin tool '{tool_name}' failed: {e}") from e
+
     if tool_name not in TOOL_REGISTRY:
         raise ToolError(f"Unknown tool: {tool_name}")
 
@@ -496,3 +516,13 @@ def dispatch_tool(tool_name: str, tool_input: dict) -> str:
         return str(result) if result else "Tool executed (no output path)"
     except Exception as e:
         raise ToolError(f"Tool '{tool_name}' failed: {e}") from e
+
+
+# MCP host reference — set by server.py during lifespan
+_mcp_host: "MCPHost | None" = None
+
+
+def set_mcp_host(host: "MCPHost | None") -> None:
+    """Register the MCP host for plugin tool dispatch."""
+    global _mcp_host
+    _mcp_host = host

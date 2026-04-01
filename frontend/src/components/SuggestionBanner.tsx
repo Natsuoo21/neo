@@ -1,0 +1,61 @@
+import { useEffect } from "react";
+import { Lightbulb, Check, X } from "lucide-react";
+import { rpc } from "@/lib/rpc";
+import { useNeoStore } from "@/stores/neoStore";
+import type { SuggestionListResult } from "@/types/rpc";
+
+export default function SuggestionBanner() {
+  const suggestions = useNeoStore((s) => s.suggestions);
+  const setSuggestions = useNeoStore((s) => s.setSuggestions);
+  const dismissSuggestion = useNeoStore((s) => s.dismissSuggestion);
+  const connected = useNeoStore((s) => s.connected);
+
+  useEffect(() => {
+    if (!connected) return;
+    rpc<SuggestionListResult>("neo.suggestions.list")
+      .then((res) => setSuggestions(res.suggestions))
+      .catch(console.error);
+  }, [connected, setSuggestions]);
+
+  const handleAccept = async (id: number) => {
+    try {
+      await rpc("neo.suggestions.accept", { id });
+      dismissSuggestion(id);
+    } catch (err) {
+      console.error("Failed to accept suggestion:", err);
+    }
+  };
+
+  const handleDismiss = async (id: number) => {
+    try {
+      await rpc("neo.suggestions.dismiss", { id });
+      dismissSuggestion(id);
+    } catch (err) {
+      console.error("Failed to dismiss suggestion:", err);
+    }
+  };
+
+  if (suggestions.length === 0) return null;
+
+  const suggestion = suggestions[0];
+
+  return (
+    <div className="mx-6 mt-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center gap-3">
+      <Lightbulb className="w-4 h-4 text-primary shrink-0" />
+      <p className="flex-1 text-sm text-foreground">{suggestion.message}</p>
+      <button
+        onClick={() => handleAccept(suggestion.id)}
+        className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+      >
+        <Check className="w-3 h-3" />
+        Automate
+      </button>
+      <button
+        onClick={() => handleDismiss(suggestion.id)}
+        className="p-1 rounded-lg text-muted-foreground hover:bg-accent/50 transition-colors"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}

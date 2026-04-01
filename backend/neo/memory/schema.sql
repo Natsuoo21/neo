@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 -- ============================================
+-- suggestions: Proactive intelligence suggestions.
+-- Generated from detected patterns.
+-- ============================================
+CREATE TABLE IF NOT EXISTS suggestions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern     TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    count       INTEGER DEFAULT 0,
+    sample_input TEXT,
+    dismissed   INTEGER DEFAULT 0,
+    accepted    INTEGER DEFAULT 0,
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+-- ============================================
 -- Indexes
 -- ============================================
 CREATE INDEX IF NOT EXISTS idx_action_log_created ON action_log(created_at);
@@ -108,3 +123,4 @@ CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_created ON conversations(created_at);
 CREATE INDEX IF NOT EXISTS idx_skills_type ON skills(skill_type);
+CREATE INDEX IF NOT EXISTS idx_suggestions_dismissed ON suggestions(dismissed);

@@ -33,14 +33,17 @@ from neo.automations.safety import (
     resolve_confirmation,
     set_global_pause,
 )
+from neo.automations.suggestions import get_pending_suggestions
 from neo.llm.registry import build_provider_registry, check_ollama, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
+    accept_suggestion,
     add_message,
     create_automation,
     delete_automation,
     detect_patterns,
     disable_automation,
+    dismiss_suggestion,
     enable_automation,
     get_all_automations,
     get_automation,
@@ -51,7 +54,8 @@ from neo.memory.models import (
     upsert_user_profile,
 )
 from neo.memory.seed import seed_user_profile
-from neo.orchestrator import process
+from neo.orchestrator import process, set_mcp_host
+from neo.plugins.mcp_host import MCPHost
 from neo.router import CLAUDE, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
 
@@ -64,6 +68,9 @@ _registry: dict = {}
 _db_path: str = ""
 _scheduler: Any = None
 _file_watcher: Any = None
+_mcp_host: MCPHost | None = None
+_stt: Any = None
+_tts: Any = None
 
 # SSE subscriber queues for broadcasting events to connected clients
 _sse_subscribers: list[asyncio.Queue] = []
@@ -171,8 +178,8 @@ def broadcast_sse_event(event_data: dict) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: bootstrap DB + providers + scheduler + watcher.  Shutdown: graceful stop."""
-    global _registry, _db_path, _scheduler, _file_watcher
+    """Startup: bootstrap DB + providers + scheduler + watcher + plugins.  Shutdown: graceful stop."""
+    global _registry, _db_path, _scheduler, _file_watcher, _mcp_host
     _db_path = _bootstrap()
     _registry = build_provider_registry()
     await check_ollama(_registry)
@@ -208,6 +215,15 @@ async def lifespan(app: FastAPI):
     except (ImportError, OSError, RuntimeError):
         logger.exception("Failed to start file watcher")
 
+    # Start MCP plugin host
+    try:
+        _mcp_host = MCPHost()
+        _mcp_host.discover()
+        set_mcp_host(_mcp_host)
+        logger.info("MCP host started, %d plugins discovered", len(_mcp_host.list_plugins()))
+    except (ImportError, OSError, RuntimeError):
+        logger.exception("Failed to start MCP host")
+
     logger.info("Neo server ready. Providers: %s", ", ".join(_registry.keys()))
     yield
 
@@ -223,6 +239,13 @@ async def lifespan(app: FastAPI):
             _file_watcher.shutdown()
         except (RuntimeError, OSError):
             logger.exception("Error shutting down file watcher")
+
+    if _mcp_host:
+        try:
+            _mcp_host.shutdown()
+            set_mcp_host(None)
+        except (RuntimeError, OSError):
+            logger.exception("Error shutting down MCP host")
 
 
 app = FastAPI(title="Neo Server", version="0.1.0", lifespan=lifespan)
@@ -713,6 +736,193 @@ async def _rpc_automation_run(params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Suggestion RPC methods
+# ---------------------------------------------------------------------------
+
+
+async def _rpc_suggestions_list(_params: dict) -> dict:
+    """List active (non-dismissed) suggestions."""
+    suggestions = await asyncio.to_thread(get_pending_suggestions, _db_path)
+    return {"suggestions": suggestions}
+
+
+async def _rpc_suggestions_dismiss(params: dict) -> dict:
+    """Dismiss a suggestion by ID."""
+    suggestion_id = params.get("id")
+    if suggestion_id is None:
+        raise ValueError("Missing 'id' parameter")
+
+    def _dismiss():
+        with get_session(_db_path) as conn:
+            return dismiss_suggestion(conn, int(suggestion_id))
+
+    dismissed = await asyncio.to_thread(_dismiss)
+    return {"dismissed": dismissed, "id": suggestion_id}
+
+
+async def _rpc_suggestions_accept(params: dict) -> dict:
+    """Accept a suggestion — creates an automation from the pattern."""
+    suggestion_id = params.get("id")
+    if suggestion_id is None:
+        raise ValueError("Missing 'id' parameter")
+
+    def _accept():
+        with get_session(_db_path) as conn:
+            suggestion = accept_suggestion(conn, int(suggestion_id))
+            if not suggestion:
+                return None, None
+
+            # Create a pattern-triggered automation from the suggestion
+            auto_id = create_automation(
+                conn,
+                name=f"Auto: {suggestion['pattern']}",
+                trigger_type="pattern",
+                command=suggestion["sample_input"],
+                trigger_config={"pattern": suggestion["pattern"]},
+            )
+            automation = get_automation(conn, auto_id)
+            return suggestion, automation
+
+    suggestion, automation = await asyncio.to_thread(_accept)
+    return {
+        "accepted": suggestion is not None,
+        "suggestion": suggestion,
+        "automation": automation,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Plugin RPC methods
+# ---------------------------------------------------------------------------
+
+
+async def _rpc_plugin_list(_params: dict) -> dict:
+    """List all discovered plugins and their status."""
+    if _mcp_host is None:
+        return {"plugins": []}
+    plugins = _mcp_host.list_plugins()
+    return {"plugins": plugins}
+
+
+async def _rpc_plugin_install(params: dict) -> dict:
+    """Start (install/enable) a plugin by name."""
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    started = _mcp_host.start_plugin(name)
+    return {"started": started, "name": name}
+
+
+async def _rpc_plugin_remove(params: dict) -> dict:
+    """Stop and unregister a plugin by name."""
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    removed = _mcp_host.remove_plugin(name)
+    return {"removed": removed, "name": name}
+
+
+async def _rpc_plugin_status(params: dict) -> dict:
+    """Get status and tools for a specific plugin."""
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if _mcp_host is None:
+        return {"name": name, "status": "unavailable", "tools": []}
+
+    plugins = _mcp_host.list_plugins()
+    for p in plugins:
+        if p["name"] == name:
+            tools = _mcp_host.get_plugin_tools(name)
+            return {"name": name, "status": p["status"], "tools": tools}
+
+    return {"name": name, "status": "not_found", "tools": []}
+
+
+# ---------------------------------------------------------------------------
+# Voice RPC methods
+# ---------------------------------------------------------------------------
+
+
+async def _rpc_voice_start(params: dict) -> dict:
+    """Start voice input (recording from microphone)."""
+    global _stt
+
+    if _stt is None:
+        try:
+            from neo.voice.stt import WhisperSTT
+            model = params.get("model", "base")
+            language = params.get("language", "en")
+            _stt = WhisperSTT(model_name=model, language=language)
+        except ImportError as e:
+            raise RuntimeError(str(e))
+
+    def _on_transcription(text: str) -> None:
+        broadcast_sse_event({"type": "voice_transcription", "text": text})
+
+    mode = params.get("mode", "record")  # "record" or "wake_word"
+
+    if mode == "wake_word":
+        _stt.start_wake_word(_on_transcription)
+    else:
+        _stt.start_recording(_on_transcription)
+
+    return {"started": True, "mode": mode}
+
+
+async def _rpc_voice_stop(_params: dict) -> dict:
+    """Stop voice input."""
+    if _stt is None:
+        return {"stopped": False}
+
+    _stt.stop_recording()
+    _stt.stop_wake_word()
+    return {"stopped": True}
+
+
+async def _rpc_voice_status(_params: dict) -> dict:
+    """Get voice input/output status."""
+    stt_status = _stt.get_status() if _stt else {
+        "model_loaded": False, "recording": False, "wake_word_active": False,
+    }
+    tts_status = _tts.get_status() if _tts and hasattr(_tts, "get_status") else {
+        "enabled": False, "speaking": False,
+    }
+    return {
+        "stt": stt_status,
+        "tts": tts_status,
+        "stt_active": stt_status.get("recording", False) or stt_status.get("wake_word_active", False),
+        "tts_enabled": tts_status.get("enabled", False),
+        "wake_word_active": stt_status.get("wake_word_active", False),
+    }
+
+
+async def _rpc_voice_speak(params: dict) -> dict:
+    """Speak text using TTS."""
+    global _tts
+
+    text = params.get("text", "").strip()
+    if not text:
+        raise ValueError("Missing 'text' parameter")
+
+    if _tts is None:
+        try:
+            from neo.voice.tts import NeoTTS
+            _tts = NeoTTS()
+        except ImportError as e:
+            raise RuntimeError(str(e))
+
+    await asyncio.to_thread(_tts.speak, text)
+    return {"spoken": True}
+
+
+# ---------------------------------------------------------------------------
 # Method dispatch table
 # ---------------------------------------------------------------------------
 
@@ -739,6 +949,17 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.automation.resume_all": _rpc_automation_resume_all,
     "neo.automation.pending_confirmations": _rpc_automation_pending_confirmations,
     "neo.automation.run": _rpc_automation_run,
+    "neo.suggestions.list": _rpc_suggestions_list,
+    "neo.suggestions.dismiss": _rpc_suggestions_dismiss,
+    "neo.suggestions.accept": _rpc_suggestions_accept,
+    "neo.plugin.list": _rpc_plugin_list,
+    "neo.plugin.install": _rpc_plugin_install,
+    "neo.plugin.remove": _rpc_plugin_remove,
+    "neo.plugin.status": _rpc_plugin_status,
+    "neo.voice.start": _rpc_voice_start,
+    "neo.voice.stop": _rpc_voice_stop,
+    "neo.voice.status": _rpc_voice_status,
+    "neo.voice.speak": _rpc_voice_speak,
 }
 
 

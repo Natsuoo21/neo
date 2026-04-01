@@ -24,11 +24,13 @@ google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.100.0
 
 # Voice (Phase 4)
-# openai-whisper>=20231117
-# pyttsx3>=2.90
+openai-whisper>=20231117
+pyttsx3>=2.90
+sounddevice>=0.4.6
+numpy>=1.26.0
 
 # MCP (Phase 4)
-# mcp>=1.0.0
+mcp>=1.0.0
 
 # HTTP server (Tauri IPC)
 fastapi>=0.115.0

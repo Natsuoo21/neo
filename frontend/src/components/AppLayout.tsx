@@ -3,6 +3,7 @@ import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import SkillBrowser from "./SkillBrowser";
 import AutomationManager from "./AutomationManager";
+import PluginManager from "./PluginManager";
 import ActionLog from "./ActionLog";
 import SettingsPanel from "./SettingsPanel";
 import ConfirmationDialog from "./ConfirmationDialog";
@@ -12,6 +13,7 @@ const VIEW_COMPONENTS = {
   chat: ChatView,
   skills: SkillBrowser,
   automations: AutomationManager,
+  plugins: PluginManager,
   actions: ActionLog,
   settings: SettingsPanel,
 } as const;

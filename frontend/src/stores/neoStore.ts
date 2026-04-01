@@ -9,12 +9,14 @@ import type {
   ConfirmationRequest,
   ConversationSession,
   ExecuteResult,
+  Plugin,
   Provider,
   Skill,
+  Suggestion,
   UserProfile,
 } from "@/types/rpc";
 
-export type ViewId = "chat" | "skills" | "automations" | "actions" | "settings";
+export type ViewId = "chat" | "skills" | "automations" | "actions" | "settings" | "plugins";
 
 export interface ChatMessage {
   id: string;
@@ -89,6 +91,19 @@ interface NeoState {
   setPendingConfirmations: (c: ConfirmationRequest[]) => void;
   addPendingConfirmation: (c: ConfirmationRequest) => void;
   removePendingConfirmation: (id: string) => void;
+
+  // Plugins
+  plugins: Plugin[];
+  setPlugins: (p: Plugin[]) => void;
+
+  // Suggestions
+  suggestions: Suggestion[];
+  setSuggestions: (s: Suggestion[]) => void;
+  dismissSuggestion: (id: number) => void;
+
+  // Voice
+  voiceActive: boolean;
+  setVoiceActive: (v: boolean) => void;
 
   // Sidebar
   sidebarCollapsed: boolean;
@@ -165,6 +180,20 @@ export const useNeoStore = create<NeoState>((set) => ({
     set((s) => ({
       pendingConfirmations: s.pendingConfirmations.filter((c) => c.id !== id),
     })),
+
+  // Plugins
+  plugins: [],
+  setPlugins: (p) => set({ plugins: p }),
+
+  // Suggestions
+  suggestions: [],
+  setSuggestions: (s) => set({ suggestions: s }),
+  dismissSuggestion: (id) =>
+    set((s) => ({ suggestions: s.suggestions.filter((sg) => sg.id !== id) })),
+
+  // Voice
+  voiceActive: false,
+  setVoiceActive: (v) => set({ voiceActive: v }),
 
   // Sidebar
   sidebarCollapsed: false,

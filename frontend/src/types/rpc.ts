@@ -215,3 +215,58 @@ export interface PatternsResult {
     sample_input: string;
   }[];
 }
+
+// --- Plugin types ---
+
+export interface Plugin {
+  name: string;
+  version: string;
+  description: string;
+  command: string;
+  args: string[];
+  tools: { name: string; description?: string }[];
+  status: "running" | "stopped";
+}
+
+export interface PluginListResult {
+  plugins: Plugin[];
+}
+
+export interface PluginInstallResult {
+  started: boolean;
+  name: string;
+}
+
+export interface PluginRemoveResult {
+  removed: boolean;
+  name: string;
+}
+
+export interface PluginStatusResult {
+  name: string;
+  status: string;
+  tools: { name: string; description?: string }[];
+}
+
+// --- Suggestion types ---
+
+export interface Suggestion {
+  id: number;
+  pattern: string;
+  message: string;
+  count: number;
+  sample_input: string;
+  created_at: string;
+}
+
+export interface SuggestionListResult {
+  suggestions: Suggestion[];
+}
+
+// --- Voice types ---
+
+export interface VoiceStatusResult {
+  stt_active: boolean;
+  tts_enabled: boolean;
+  wake_word_active: boolean;
+}
