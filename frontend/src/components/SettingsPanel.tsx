@@ -72,7 +72,7 @@ export default function SettingsPanel() {
     <div className="flex flex-col h-full">
       <PageHeader icon={Settings} title="Settings" />
 
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 max-w-2xl">
+      <div className="flex-1 overflow-y-auto px-3 md:px-6 py-6 space-y-8 max-w-2xl">
         {/* Profile */}
         <Section title="Profile">
           <Field label="Name" value={name} onChange={setName} />

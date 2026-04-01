@@ -108,6 +108,8 @@ interface NeoState {
   // Sidebar
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  sidebarMobileOpen: boolean;
+  setSidebarMobileOpen: (v: boolean) => void;
 }
 
 export const useNeoStore = create<NeoState>((set) => ({
@@ -198,4 +200,6 @@ export const useNeoStore = create<NeoState>((set) => ({
   // Sidebar
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  sidebarMobileOpen: false,
+  setSidebarMobileOpen: (v) => set({ sidebarMobileOpen: v }),
 }));

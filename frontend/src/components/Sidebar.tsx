@@ -37,6 +37,9 @@ export default function Sidebar() {
   const sessionId = useNeoStore((s) => s.sessionId);
   const setSessionId = useNeoStore((s) => s.setSessionId);
   const setMessages = useNeoStore((s) => s.setMessages);
+  const setSidebarMobileOpen = useNeoStore((s) => s.setSidebarMobileOpen);
+
+  const closeMobile = () => setSidebarMobileOpen(false);
 
   // Load sessions on mount and when connected
   useEffect(() => {
@@ -62,51 +65,56 @@ export default function Sidebar() {
       }));
       setMessages(msgs);
       setView("chat");
+      closeMobile();
     } catch (err) {
       console.error("Failed to load session:", err);
     }
   };
 
+  // Group sessions by date
+  const groupedSessions = groupSessionsByDate(sessions.slice(0, 20));
+
   return (
     <aside
       className={cn(
-        "flex flex-col h-full bg-card/80 border-r border-border/60 shrink-0 transition-all duration-200",
-        collapsed ? "w-14" : "w-52",
+        "flex flex-col h-full bg-card/80 border-r border-border/60 shrink-0 transition-all duration-200 select-none",
+        collapsed ? "w-14" : "w-60",
       )}
     >
       {/* New Chat button */}
-      <div className="p-2">
+      <div className="p-2.5">
         <button
           onClick={() => {
             clearMessages();
             setView("chat");
+            closeMobile();
           }}
           className={cn(
-            "flex items-center gap-2 w-full rounded-md px-3 py-2 text-[13px] font-medium",
-            "bg-primary/10 text-primary hover:bg-primary/20 active:scale-[0.98] transition-interaction",
+            "flex items-center gap-2.5 w-full rounded-lg px-3.5 py-2.5 text-sm font-medium",
+            "bg-primary text-primary-foreground hover:brightness-110 active:scale-[0.98] transition-interaction shadow-card",
             collapsed && "justify-center px-0",
           )}
         >
-          <Plus className="w-4 h-4 shrink-0" />
+          <Plus className="w-4.5 h-4.5 shrink-0" />
           {!collapsed && <span>New Chat</span>}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="p-2 space-y-1">
+      <nav className="px-2.5 space-y-0.5">
         {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setView(id)}
+            onClick={() => { setView(id); closeMobile(); }}
             className={cn(
-              "flex items-center gap-3 w-full rounded-md px-3 py-2 text-[13px] transition-interaction relative",
+              "flex items-center gap-3.5 w-full rounded-lg px-3.5 py-2.5 text-sm transition-interaction relative",
               view === id
-                ? "bg-accent text-foreground before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-primary"
+                ? "bg-accent text-foreground shadow-card before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-primary"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
               collapsed && "justify-center px-0",
             )}
           >
-            <Icon className="w-4 h-4 shrink-0" />
+            <Icon className="w-5 h-5 shrink-0" />
             {!collapsed && <span>{label}</span>}
           </button>
         ))}
@@ -114,32 +122,38 @@ export default function Sidebar() {
 
       {/* Conversation history */}
       {!collapsed && sessions.length > 0 && (
-        <div className="flex-1 overflow-y-auto border-t border-border/60">
-          <div className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-            Recent Chats
-          </div>
-          <div className="px-2 space-y-0.5">
-            {sessions.slice(0, 20).map((s) => (
-              <button
-                key={s.session_id}
-                onClick={() => loadSession(s.session_id)}
-                className={cn(
-                  "w-full text-left rounded-md px-2 py-1.5 text-xs transition-interaction truncate",
-                  sessionId === s.session_id
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
-                )}
-                title={`${s.message_count} messages`}
-              >
-                <span className="block truncate">
-                  {s.session_id.slice(0, 8)}...
-                </span>
-                <span className="block text-[10px] opacity-60">
-                  {formatSessionTime(s.last_message_at)} · {s.message_count} msgs
-                </span>
-              </button>
-            ))}
-          </div>
+        <div className="flex-1 overflow-y-auto mt-2 border-t border-border/60">
+          {groupedSessions.map((group) => (
+            <div key={group.label}>
+              <div className="px-4 pt-3 pb-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                {group.label}
+              </div>
+              <div className="px-2 space-y-0.5">
+                {group.sessions.map((s) => (
+                  <button
+                    key={s.session_id}
+                    onClick={() => loadSession(s.session_id)}
+                    className={cn(
+                      "w-full text-left rounded-lg px-3 py-2 transition-interaction group",
+                      sessionId === s.session_id
+                        ? "bg-accent text-foreground shadow-card"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
+                    )}
+                    title={`${s.message_count} messages`}
+                  >
+                    <span className="block text-xs truncate leading-snug">
+                      {s.preview || s.session_id.slice(0, 12) + "..."}
+                    </span>
+                    <span className="flex items-center gap-1.5 mt-0.5 text-[10px] opacity-50">
+                      <span>{formatSessionTime(s.last_message_at)}</span>
+                      <span>·</span>
+                      <span>{s.message_count} msgs</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -147,31 +161,61 @@ export default function Sidebar() {
       {(collapsed || sessions.length === 0) && <div className="flex-1" />}
 
       {/* Footer: collapse toggle + connection status */}
-      <div className="p-2 border-t border-border/60 space-y-2">
+      <div className="p-2.5 border-t border-border/60 space-y-2">
         {!collapsed && (
-          <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-muted-foreground">
             <span
               className={cn(
-                "w-2 h-2 rounded-full",
+                "w-2 h-2 rounded-full shrink-0",
                 connected ? "bg-emerald-500" : "bg-destructive",
               )}
             />
-            {connected ? "Connected" : "Offline"}
+            <span>{connected ? "Connected" : "Offline"}</span>
+            <span className="ml-auto text-[10px] opacity-40 font-mono">v0.1</span>
           </div>
         )}
         <button
           onClick={toggleSidebar}
-          className="flex items-center justify-center w-full rounded-md px-3 py-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-95 transition-interaction"
+          className="flex items-center justify-center w-full rounded-lg px-3 py-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-95 transition-interaction"
         >
           {collapsed ? (
-            <PanelLeft className="w-4 h-4" />
+            <PanelLeft className="w-4.5 h-4.5" />
           ) : (
-            <PanelLeftClose className="w-4 h-4" />
+            <PanelLeftClose className="w-4.5 h-4.5" />
           )}
         </button>
       </div>
     </aside>
   );
+}
+
+interface SessionGroup {
+  label: string;
+  sessions: Array<{ session_id: string; last_message_at: string; message_count: number; preview?: string }>;
+}
+
+function groupSessionsByDate(sessions: Array<{ session_id: string; last_message_at: string; message_count: number; preview?: string }>): SessionGroup[] {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekAgo = new Date(today.getTime() - 7 * 86400000);
+
+  const groups: Record<string, SessionGroup> = {};
+  const order = ["Today", "Yesterday", "This Week", "Older"];
+
+  for (const s of sessions) {
+    const d = new Date(s.last_message_at);
+    let label: string;
+    if (d >= today) label = "Today";
+    else if (d >= yesterday) label = "Yesterday";
+    else if (d >= weekAgo) label = "This Week";
+    else label = "Older";
+
+    if (!groups[label]) groups[label] = { label, sessions: [] };
+    groups[label].sessions.push(s);
+  }
+
+  return order.filter((l) => groups[l]).map((l) => groups[l]);
 }
 
 function formatSessionTime(iso: string): string {

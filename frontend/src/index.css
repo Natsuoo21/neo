@@ -54,7 +54,6 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   overflow: hidden;
-  user-select: none;
 }
 
 /* Monospace */
@@ -134,6 +133,20 @@ body::after {
 
 .animate-fade-in-up {
   animation: fadeInUp 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Slide-in animation for mobile sidebar */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Scrollbar styling */

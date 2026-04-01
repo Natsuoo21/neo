@@ -74,7 +74,7 @@ export default function ActionLog() {
         </button>
       </PageHeader>
 
-      <div className="px-6 py-3 border-b border-border/60">
+      <div className="px-3 md:px-6 py-3 border-b border-border/60">
         <SearchInput value={search} onChange={setSearch} placeholder="Search by command, tool, or model..." />
       </div>
 

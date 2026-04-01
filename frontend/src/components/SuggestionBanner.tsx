@@ -40,7 +40,7 @@ export default function SuggestionBanner() {
   const suggestion = suggestions[0];
 
   return (
-    <div className="mx-6 mt-2 rounded-lg border border-primary/15 bg-primary/5 px-4 py-3 flex items-center gap-3 animate-fade-in-up">
+    <div className="mx-3 md:mx-6 mt-2 rounded-lg border border-primary/15 bg-primary/5 px-4 py-3 flex items-center gap-3 animate-fade-in-up">
       <Lightbulb className="w-4 h-4 text-primary shrink-0" />
       <p className="flex-1 text-[13px] text-foreground">{suggestion.message}</p>
       <button
