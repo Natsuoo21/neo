@@ -24,10 +24,11 @@ from neo.automations.safety import (
     log_before_execution,
     request_confirmation,
 )
+from neo.llm.registry import select_provider
 from neo.memory.db import get_session
 from neo.memory.models import get_automation, get_automations_by_trigger, update_automation_status
 from neo.orchestrator import process
-from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
+from neo.router import LOCAL, route, strip_override
 from neo.skills.loader import route_skill_with_name
 
 logger = logging.getLogger(__name__)
@@ -377,14 +378,4 @@ class NeoScheduler:
 
     def _select_provider(self, tier: str) -> Any:
         """Select an LLM provider with fallback chain."""
-        fallback = [LOCAL, GEMINI, OPENAI, CLAUDE]
-
-        if tier in self._registry:
-            return self._registry[tier]
-
-        start_idx = fallback.index(tier) if tier in fallback else 0
-        for t in fallback[start_idx:]:
-            if t in self._registry:
-                return self._registry[t]
-
-        return None
+        return select_provider(self._registry, tier)

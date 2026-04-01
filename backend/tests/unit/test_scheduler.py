@@ -1,8 +1,9 @@
 """Tests for neo.automations.scheduler — cron parsing + NeoScheduler."""
 
 import json
-import time
-from unittest.mock import MagicMock, patch
+import sqlite3
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -11,7 +12,6 @@ from neo.automations.scheduler import (
     parse_schedule,
     parse_schedule_with_llm,
 )
-
 
 # ---------------------------------------------------------------------------
 # Cron parsing tests
@@ -71,7 +71,6 @@ class TestParseSchedule:
 class TestParseScheduleWithLLM:
     @pytest.mark.asyncio
     async def test_valid_llm_response(self):
-        from unittest.mock import AsyncMock
         provider = MagicMock()
         provider.complete = AsyncMock(return_value="30 7 * * *")
 
@@ -80,7 +79,6 @@ class TestParseScheduleWithLLM:
 
     @pytest.mark.asyncio
     async def test_invalid_llm_response(self):
-        from unittest.mock import AsyncMock
         provider = MagicMock()
         provider.complete = AsyncMock(return_value="not a cron expression")
 
@@ -89,7 +87,6 @@ class TestParseScheduleWithLLM:
 
     @pytest.mark.asyncio
     async def test_llm_exception(self):
-        from unittest.mock import AsyncMock
         provider = MagicMock()
         provider.complete = AsyncMock(side_effect=RuntimeError("fail"))
 
@@ -109,9 +106,6 @@ class TestNeoScheduler:
     def test_start_loads_from_db(self, memory_db, tmp_path):
         """Scheduler loads enabled schedule automations on start."""
         # Create a DB file for real get_session usage
-        import sqlite3
-        from pathlib import Path
-
         db_path = str(tmp_path / "test.db")
 
         schema_path = Path(__file__).resolve().parent.parent.parent / "neo" / "memory" / "schema.sql"
@@ -219,6 +213,7 @@ class TestNeoScheduler:
         db_path = str(tmp_path / "test.db")
         import sqlite3
         from pathlib import Path
+
         from neo.automations.safety import set_global_pause
 
         schema_path = Path(__file__).resolve().parent.parent.parent / "neo" / "memory" / "schema.sql"

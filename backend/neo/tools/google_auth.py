@@ -5,6 +5,8 @@ Credentials are stored in the data/ directory.
 """
 
 import logging
+import signal
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,24 @@ _SCOPES = [
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 _TOKEN_PATH = _DATA_DIR / "google_token.json"
 _CREDENTIALS_PATH = _DATA_DIR / "google_credentials.json"
+_CREDENTIAL_TIMEOUT_S = 30
+
+
+@contextmanager
+def _timeout(seconds: int):
+    """Context manager that raises TimeoutError after N seconds (Unix only)."""
+    def _handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {seconds}s")
+
+    try:
+        old_handler = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(seconds)
+        yield
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+    except (ValueError, OSError):
+        # signal.alarm not available (e.g. Windows) — run without timeout
+        yield
 
 
 def is_configured() -> bool:
@@ -52,13 +72,17 @@ def get_credentials() -> Any:
             return creds
 
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            with _timeout(_CREDENTIAL_TIMEOUT_S):
+                creds.refresh(Request())
             _save_token(creds)
             return creds
 
         # No valid credentials — need full OAuth flow
         return None
 
+    except TimeoutError:
+        logger.error("Google credential refresh timed out after %ds", _CREDENTIAL_TIMEOUT_S)
+        return None
     except Exception:
         logger.exception("Failed to load Google credentials")
         return None

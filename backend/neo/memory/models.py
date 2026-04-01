@@ -1,7 +1,6 @@
 """Database models — CRUD operations for all tables."""
 
 import json
-import re
 import sqlite3
 from datetime import datetime, timezone
 
@@ -94,15 +93,19 @@ def get_active_projects(conn: sqlite3.Connection) -> list[dict]:
 
 def update_project(conn: sqlite3.Connection, project_id: int, **kwargs) -> bool:
     """Update project fields. Pass only the fields to change."""
-    allowed = {"name", "description", "goals", "stakeholders", "file_paths", "conventions", "is_active"}
-    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    # Allowlist maps valid field names to themselves — only these columns can be updated.
+    _ALLOWED_COLUMNS = {
+        "name": "name",
+        "description": "description",
+        "goals": "goals",
+        "stakeholders": "stakeholders",
+        "file_paths": "file_paths",
+        "conventions": "conventions",
+        "is_active": "is_active",
+    }
+    updates = {_ALLOWED_COLUMNS[k]: v for k, v in kwargs.items() if k in _ALLOWED_COLUMNS}
     if not updates:
         return False
-
-    # Validate that all keys are safe identifiers (defense-in-depth)
-    for key in updates:
-        if not re.match(r"^[a-z_]+$", key):
-            raise ValueError(f"Invalid column name: {key}")
 
     # Serialize JSON fields
     for key in ("goals", "stakeholders", "file_paths", "conventions"):
@@ -110,9 +113,10 @@ def update_project(conn: sqlite3.Connection, project_id: int, **kwargs) -> bool:
             updates[key] = json.dumps(updates[key])
 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    # Safe: column names are from _ALLOWED_COLUMNS (hardcoded strings), not user input
+    set_clause = ", ".join(f"{col} = ?" for col in updates)
     values = list(updates.values()) + [project_id]
-    conn.execute(f"UPDATE projects SET {set_clause} WHERE id = ?", values)
+    conn.execute(f"UPDATE projects SET {set_clause} WHERE id = ?", values)  # noqa: S608
     return True
 
 

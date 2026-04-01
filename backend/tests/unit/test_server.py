@@ -41,12 +41,12 @@ def _patch_server_state(monkeypatch):
     mock_registry = {"CLAUDE": _MockProvider()}
 
     monkeypatch.setattr(srv, "_bootstrap", lambda db=None: db_path)
-    monkeypatch.setattr(srv, "_build_provider_registry", lambda: dict(mock_registry))
+    monkeypatch.setattr(srv, "build_provider_registry", lambda: dict(mock_registry))
 
     async def _noop_ollama(reg):
         pass
 
-    monkeypatch.setattr(srv, "_check_ollama", _noop_ollama)
+    monkeypatch.setattr(srv, "check_ollama", _noop_ollama)
     monkeypatch.setattr(srv, "_db_path", db_path)
     monkeypatch.setattr(srv, "_registry", mock_registry)
 
@@ -115,12 +115,11 @@ def test_rpc_invalid_request(client):
 
 def test_rpc_internal_error_does_not_leak_details(client):
     """Exception details should not be sent to client."""
-    r = _rpc(client, "neo.settings.update", {"name": ""})
+    _rpc(client, "neo.settings.update", {"name": ""})
     # settings_update raises ValueError if no profile, but the test fixture seeds one.
     # Force an error by calling with bad limit type to test the generic handler.
     # Instead, just verify the error message format.
     # For a true internal error, we'd need to mock a handler to throw.
-    pass
 
 
 # ---- neo.execute ------------------------------------------------------------

@@ -1,6 +1,5 @@
 """Tests for neo.tools.browser — mock Playwright, no real browser."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,7 +11,6 @@ from neo.tools.browser import (
     research_pipeline,
     take_screenshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — mock Playwright objects

@@ -33,6 +33,7 @@ from neo.automations.safety import (
     resolve_confirmation,
     set_global_pause,
 )
+from neo.llm.registry import build_provider_registry, check_ollama, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
     add_message,
@@ -49,7 +50,7 @@ from neo.memory.models import (
 )
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
-from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
+from neo.router import CLAUDE, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
 
 logger = logging.getLogger(__name__)
@@ -64,9 +65,6 @@ _file_watcher: Any = None
 
 # SSE subscriber queues for broadcasting events to connected clients
 _sse_subscribers: list[asyncio.Queue] = []
-
-# Fallback order when the selected tier is unavailable
-_FALLBACK_CHAIN = [LOCAL, GEMINI, OPENAI, CLAUDE]
 
 # Max command length to prevent abuse
 _MAX_COMMAND_LENGTH = 10_000
@@ -83,49 +81,6 @@ _CORS_ORIGINS = [
 # ---------------------------------------------------------------------------
 # Bootstrap helpers (mirrors main.py logic)
 # ---------------------------------------------------------------------------
-
-def _build_provider_registry() -> dict:
-    """Create a dict mapping tier -> provider instance (only if available)."""
-    registry: dict = {}
-
-    claude_key = os.environ.get("CLAUDE_API_KEY", "")
-    if claude_key:
-        from neo.llm.claude import ClaudeProvider
-        registry[CLAUDE] = ClaudeProvider(api_key=claude_key)
-
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        from neo.llm.openai_provider import OpenAIProvider
-        registry[OPENAI] = OpenAIProvider(api_key=openai_key)
-
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        from neo.llm.gemini import GeminiProvider
-        registry[GEMINI] = GeminiProvider(api_key=gemini_key)
-
-    return registry
-
-
-async def _check_ollama(registry: dict) -> None:
-    from neo.llm.ollama import OllamaProvider
-    ollama = OllamaProvider()
-    try:
-        async with asyncio.timeout(5):
-            if await ollama.is_available():
-                registry[LOCAL] = ollama
-    except TimeoutError:
-        logger.warning("Ollama availability check timed out")
-
-
-def _select_provider(registry: dict, tier: str):
-    if tier in registry:
-        return registry[tier]
-    start = _FALLBACK_CHAIN.index(tier) if tier in _FALLBACK_CHAIN else 0
-    for fallback_tier in _FALLBACK_CHAIN[start:]:
-        if fallback_tier in registry:
-            return registry[fallback_tier]
-    return None
-
 
 def _bootstrap(db_path: str | None = None) -> str:
     """Load env, init DB, seed data, sync skills. Returns db_path."""
@@ -217,8 +172,8 @@ async def lifespan(app: FastAPI):
     """Startup: bootstrap DB + providers + scheduler + watcher.  Shutdown: graceful stop."""
     global _registry, _db_path, _scheduler, _file_watcher
     _db_path = _bootstrap()
-    _registry = _build_provider_registry()
-    await _check_ollama(_registry)
+    _registry = build_provider_registry()
+    await check_ollama(_registry)
 
     if not _registry:
         from neo.llm.mock import MockProvider
@@ -234,7 +189,7 @@ async def lifespan(app: FastAPI):
         _scheduler = NeoScheduler(_db_path, _registry)
         _scheduler.start()
         logger.info("Automation scheduler started")
-    except Exception:
+    except (ImportError, OSError, RuntimeError):
         logger.exception("Failed to start scheduler")
 
     # Start file watcher if available
@@ -248,7 +203,7 @@ async def lifespan(app: FastAPI):
         _file_watcher = NeoFileWatcher(_db_path, execute_callback=_watcher_callback)
         _file_watcher.start()
         logger.info("File watcher started")
-    except Exception:
+    except (ImportError, OSError, RuntimeError):
         logger.exception("Failed to start file watcher")
 
     logger.info("Neo server ready. Providers: %s", ", ".join(_registry.keys()))
@@ -258,13 +213,13 @@ async def lifespan(app: FastAPI):
     if _scheduler:
         try:
             _scheduler.shutdown(wait=True)
-        except Exception:
+        except (RuntimeError, OSError):
             logger.exception("Error shutting down scheduler")
 
     if _file_watcher:
         try:
             _file_watcher.shutdown()
-        except Exception:
+        except (RuntimeError, OSError):
             logger.exception("Error shutting down file watcher")
 
 
@@ -357,7 +312,7 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
     """Synchronous execute logic — runs in a thread via asyncio.to_thread()."""
     tier = route(command)
     clean_command = strip_override(command)
-    provider = _select_provider(registry, tier)
+    provider = select_provider(registry, tier)
 
     if provider is None:
         return {

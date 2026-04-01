@@ -1,7 +1,7 @@
 """Tests for neo.automations.safety — 5 safety rules."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch  # noqa: F401
 
 import pytest
 
@@ -18,7 +18,6 @@ from neo.automations.safety import (
     resolve_confirmation,
     set_global_pause,
 )
-
 
 # ---------------------------------------------------------------------------
 # Rule 1 — Destructive detection

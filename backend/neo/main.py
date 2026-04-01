@@ -8,70 +8,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from neo.llm.registry import build_provider_registry, check_ollama, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import add_message, get_conversation
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
-from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
+from neo.router import CLAUDE, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db
 
 logger = logging.getLogger(__name__)
-
-# Fallback order when the selected tier is unavailable
-_FALLBACK_CHAIN = [LOCAL, GEMINI, OPENAI, CLAUDE]
-
-
-def _build_provider_registry() -> dict:
-    """Create a dict mapping tier → provider instance (only if available)."""
-    registry: dict = {}
-
-    # Claude (requires API key)
-    claude_key = os.environ.get("CLAUDE_API_KEY", "")
-    if claude_key:
-        from neo.llm.claude import ClaudeProvider
-
-        registry[CLAUDE] = ClaudeProvider(api_key=claude_key)
-
-    # OpenAI (requires API key)
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        from neo.llm.openai_provider import OpenAIProvider
-
-        registry[OPENAI] = OpenAIProvider(api_key=openai_key)
-
-    # Gemini (requires API key)
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        from neo.llm.gemini import GeminiProvider
-
-        registry[GEMINI] = GeminiProvider(api_key=gemini_key)
-
-    # Ollama is checked async — add a placeholder, verify later
-    return registry
-
-
-async def _check_ollama(registry: dict) -> None:
-    """Async check if Ollama is running and add to registry."""
-    from neo.llm.ollama import OllamaProvider
-
-    ollama = OllamaProvider()
-    if await ollama.is_available():
-        registry[LOCAL] = ollama
-
-
-def _select_provider(registry: dict, tier: str):
-    """Select provider for the given tier, falling back if unavailable."""
-    if tier in registry:
-        return registry[tier]
-
-    # Fallback chain
-    start = _FALLBACK_CHAIN.index(tier) if tier in _FALLBACK_CHAIN else 0
-    for fallback_tier in _FALLBACK_CHAIN[start:]:
-        if fallback_tier in registry:
-            logger.info("Tier %s unavailable, falling back to %s", tier, fallback_tier)
-            return registry[fallback_tier]
-
-    return None
 
 
 def bootstrap(db_path: str | None = None) -> tuple:
@@ -98,7 +43,7 @@ def bootstrap(db_path: str | None = None) -> tuple:
         skill_count = sync_skills_to_db(conn)
         print(f"[+] {skill_count} skills loaded.\n")
 
-    registry = _build_provider_registry()
+    registry = build_provider_registry()
     return registry, db_path
 
 
@@ -107,7 +52,7 @@ async def _async_main() -> None:
     registry, db_path = bootstrap()
 
     # Check Ollama availability
-    await _check_ollama(registry)
+    await check_ollama(registry)
 
     if not registry:
         from neo.llm.mock import MockProvider
@@ -139,7 +84,7 @@ async def _async_main() -> None:
             # Route to tier, strip override prefix
             tier = route(command)
             clean_command = strip_override(command)
-            provider = _select_provider(registry, tier)
+            provider = select_provider(registry, tier)
 
             if provider is None:
                 print("\n  [error] No LLM provider available.\n")

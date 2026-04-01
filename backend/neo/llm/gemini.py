@@ -118,8 +118,8 @@ class GeminiProvider(LLMProvider):
                 self._daily_tokens_used += tokens
                 if self._daily_tokens_used >= _DAILY_TOKEN_WARN:
                     logger.warning("Gemini daily usage high: %d/%d tokens", self._daily_tokens_used, _DAILY_TOKEN_LIMIT)
-        except Exception:
-            pass  # Don't fail on tracking errors
+        except (AttributeError, TypeError):
+            logger.debug("Could not track Gemini token usage from response")
 
     @staticmethod
     def _convert_tools(tools: list[dict]) -> list | None:

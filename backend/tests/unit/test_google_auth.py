@@ -1,9 +1,6 @@
 """Tests for neo.tools.google_auth — OAuth2 credential management."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from neo.tools import google_auth
 
@@ -47,7 +44,7 @@ class TestGetCredentials:
         with (
             patch.object(google_auth, "_CREDENTIALS_PATH", cred_file),
             patch.object(google_auth, "_TOKEN_PATH", tmp_path / "token.json"),
-            patch("neo.tools.google_auth.Credentials") as MockCreds,
+            patch("neo.tools.google_auth.Credentials"),
         ):
             # Token file doesn't exist → returns None (no creds to load)
             result = google_auth.get_credentials()
@@ -73,7 +70,7 @@ class TestGetCredentials:
         ):
             MockCreds.from_authorized_user_file.return_value = mock_creds
 
-            with patch("neo.tools.google_auth.Request") as MockRequest:
+            with patch("neo.tools.google_auth.Request"):
                 result = google_auth.get_credentials()
                 mock_creds.refresh.assert_called_once()
                 assert result == mock_creds
