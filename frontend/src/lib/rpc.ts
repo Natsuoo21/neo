@@ -97,6 +97,22 @@ export function connectStream(
     }
   });
 
+  source.addEventListener("confirmation_request", (e) => {
+    try {
+      onEvent("confirmation_request", JSON.parse(e.data));
+    } catch {
+      onEvent("confirmation_request", e.data);
+    }
+  });
+
+  source.addEventListener("automation_status", (e) => {
+    try {
+      onEvent("automation_status", JSON.parse(e.data));
+    } catch {
+      onEvent("automation_status", e.data);
+    }
+  });
+
   source.onerror = (e) => {
     onError?.(e);
   };

@@ -126,6 +126,98 @@ TOOL_DEFINITIONS = [
             "required": ["action", "source"],
         },
     },
+    {
+        "name": "browse_url",
+        "description": "Navigate to a URL and extract text content from the page.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to navigate to"},
+                "extract_selector": {
+                    "type": "string",
+                    "description": "CSS selector for content extraction (default: 'body')",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "take_screenshot",
+        "description": "Take a full-page screenshot of a URL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to screenshot"},
+                "output_path": {"type": "string", "description": "Where to save the screenshot"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "list_calendar_events",
+        "description": "List upcoming Google Calendar events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Number of days to look ahead (default: 7)"},
+                "max_results": {"type": "integer", "description": "Max events to return (default: 20)"},
+            },
+        },
+    },
+    {
+        "name": "create_calendar_event",
+        "description": "Create a Google Calendar event.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Event title"},
+                "start_time": {"type": "string", "description": "ISO 8601 start time"},
+                "end_time": {"type": "string", "description": "ISO 8601 end time"},
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of attendee email addresses",
+                },
+                "description": {"type": "string", "description": "Event description"},
+            },
+            "required": ["title", "start_time", "end_time"],
+        },
+    },
+    {
+        "name": "list_emails",
+        "description": "List Gmail emails matching a search query.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Gmail search query (e.g., 'is:unread')"},
+                "limit": {"type": "integer", "description": "Max emails to return (default: 10)"},
+            },
+        },
+    },
+    {
+        "name": "read_email",
+        "description": "Read a full email by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_id": {"type": "string", "description": "The Gmail message ID"},
+            },
+            "required": ["email_id"],
+        },
+    },
+    {
+        "name": "send_email",
+        "description": "Send an email via Gmail. This is a destructive action requiring confirmation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address"},
+                "subject": {"type": "string", "description": "Email subject"},
+                "body": {"type": "string", "description": "Email body text"},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -135,6 +227,13 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "create_document": ("neo.tools.word", "create_document"),
     "create_note": ("neo.tools.obsidian", "create_note"),
     "manage_file": ("neo.tools.files", "manage_file"),
+    "browse_url": ("neo.tools.browser", "browse_url"),
+    "take_screenshot": ("neo.tools.browser", "take_screenshot"),
+    "list_calendar_events": ("neo.tools.calendar", "list_events"),
+    "create_calendar_event": ("neo.tools.calendar", "create_event"),
+    "list_emails": ("neo.tools.gmail", "list_emails"),
+    "read_email": ("neo.tools.gmail", "read_email"),
+    "send_email": ("neo.tools.gmail", "send_email"),
 }
 
 

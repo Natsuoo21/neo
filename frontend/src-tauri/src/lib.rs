@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,9 +20,11 @@ pub fn run() {
             let show_item = MenuItem::with_id(app, "show", "Open Neo", true, None::<&str>)?;
             let command_item =
                 MenuItem::with_id(app, "command", "New Command", true, None::<&str>)?;
+            let pause_item =
+                MenuItem::with_id(app, "pause_automations", "Pause Automations", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
-            let menu = Menu::with_items(app, &[&show_item, &command_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &command_item, &pause_item, &quit_item])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -40,6 +42,10 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    }
+                    "pause_automations" => {
+                        // Emit event to frontend which handles the RPC call
+                        let _ = app.emit("tray-pause-automations", ());
                     }
                     "quit" => {
                         app.exit(0);

@@ -19,6 +19,10 @@ apscheduler>=3.10.0
 # Browser automation
 playwright>=1.40.0
 
+# Google APIs
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.100.0
+
 # Voice (Phase 4)
 # openai-whisper>=20231117
 # pyttsx3>=2.90

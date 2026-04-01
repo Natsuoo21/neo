@@ -28,9 +28,20 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from neo.automations.safety import (
+    get_pending_confirmations,
+    resolve_confirmation,
+    set_global_pause,
+)
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
     add_message,
+    create_automation,
+    delete_automation,
+    disable_automation,
+    enable_automation,
+    get_all_automations,
+    get_automation,
     get_conversation,
     get_recent_actions,
     get_user_profile,
@@ -39,7 +50,7 @@ from neo.memory.models import (
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process
 from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
-from neo.skills.loader import list_skills, route_skill_with_name, sync_skills_to_db, toggle_skill
+from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +59,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _registry: dict = {}
 _db_path: str = ""
+_scheduler: Any = None
+_file_watcher: Any = None
+
+# SSE subscriber queues for broadcasting events to connected clients
+_sse_subscribers: list[asyncio.Queue] = []
 
 # Fallback order when the selected tier is unavailable
 _FALLBACK_CHAIN = [LOCAL, GEMINI, OPENAI, CLAUDE]
@@ -182,10 +198,19 @@ _INTERNAL_ERROR = -32603
 # FastAPI app with lifespan
 # ---------------------------------------------------------------------------
 
+def broadcast_sse_event(event_data: dict) -> None:
+    """Push an event to all connected SSE subscribers (thread-safe)."""
+    for queue in _sse_subscribers:
+        try:
+            queue.put_nowait(event_data)
+        except asyncio.QueueFull:
+            logger.warning("SSE subscriber queue full, dropping event")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: bootstrap DB + providers.  Shutdown: nothing special."""
-    global _registry, _db_path
+    """Startup: bootstrap DB + providers + scheduler + watcher.  Shutdown: graceful stop."""
+    global _registry, _db_path, _scheduler, _file_watcher
     _db_path = _bootstrap()
     _registry = _build_provider_registry()
     await _check_ollama(_registry)
@@ -198,8 +223,44 @@ async def lifespan(app: FastAPI):
             tool_response={"type": "text", "content": "Offline mode — no tool execution."},
         )
 
+    # Start scheduler if available
+    try:
+        from neo.automations.scheduler import NeoScheduler
+        _scheduler = NeoScheduler(_db_path, _registry)
+        _scheduler.start()
+        logger.info("Automation scheduler started")
+    except Exception:
+        logger.exception("Failed to start scheduler")
+
+    # Start file watcher if available
+    try:
+        from neo.automations.watcher import NeoFileWatcher
+
+        def _watcher_callback(automation_id: int, command: str) -> None:
+            if _scheduler:
+                _scheduler._execute_automation(automation_id, command)
+
+        _file_watcher = NeoFileWatcher(_db_path, execute_callback=_watcher_callback)
+        _file_watcher.start()
+        logger.info("File watcher started")
+    except Exception:
+        logger.exception("Failed to start file watcher")
+
     logger.info("Neo server ready. Providers: %s", ", ".join(_registry.keys()))
     yield
+
+    # Shutdown
+    if _scheduler:
+        try:
+            _scheduler.shutdown(wait=True)
+        except Exception:
+            logger.exception("Error shutting down scheduler")
+
+    if _file_watcher:
+        try:
+            _file_watcher.shutdown()
+        except Exception:
+            logger.exception("Error shutting down file watcher")
 
 
 app = FastAPI(title="Neo Server", version="0.1.0", lifespan=lifespan)
@@ -223,15 +284,25 @@ async def health():
 
 @app.get("/stream")
 async def stream(request: Request):
-    """SSE endpoint — placeholder for future streaming LLM responses."""
+    """SSE endpoint — broadcasts automation events + keepalive pings."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _sse_subscribers.append(queue)
 
     async def event_generator():
-        yield {"event": "ping", "data": json.dumps({"status": "connected"})}
-        while True:
-            if await request.is_disconnected():
-                break
-            await asyncio.sleep(15)
-            yield {"event": "ping", "data": json.dumps({"status": "alive"})}
+        try:
+            yield {"event": "ping", "data": json.dumps({"status": "connected"})}
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event_data = await asyncio.wait_for(queue.get(), timeout=15)
+                    event_type = event_data.pop("type", "message")
+                    yield {"event": event_type, "data": json.dumps(event_data)}
+                except asyncio.TimeoutError:
+                    yield {"event": "ping", "data": json.dumps({"status": "alive"})}
+        finally:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
 
     return EventSourceResponse(event_generator())
 
@@ -477,6 +548,154 @@ async def _rpc_providers_list(_params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Automation RPC methods
+# ---------------------------------------------------------------------------
+
+
+async def _rpc_automation_list(_params: dict) -> dict:
+    """List all automations."""
+    def _query():
+        with get_session(_db_path) as conn:
+            return get_all_automations(conn)
+
+    automations = await asyncio.to_thread(_query)
+    return {"automations": automations}
+
+
+async def _rpc_automation_create(params: dict) -> dict:
+    """Create a new automation."""
+    name = params.get("name", "").strip()
+    trigger_type = params.get("trigger_type", "").strip()
+    command = params.get("command", "").strip()
+    trigger_config = params.get("trigger_config", {})
+
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if trigger_type not in ("schedule", "file_event", "startup", "pattern"):
+        raise ValueError(f"Invalid trigger_type: {trigger_type}")
+    if not command:
+        raise ValueError("Missing 'command' parameter")
+
+    def _create():
+        with get_session(_db_path) as conn:
+            auto_id = create_automation(conn, name, trigger_type, command, trigger_config)
+            return get_automation(conn, auto_id)
+
+    automation = await asyncio.to_thread(_create)
+
+    # Register with scheduler/watcher if applicable
+    if _scheduler and trigger_type == "schedule" and automation:
+        cron_expr = trigger_config.get("cron", "")
+        if cron_expr:
+            _scheduler.add_automation(automation["id"], name, cron_expr, command)
+
+    if _file_watcher and trigger_type == "file_event" and automation:
+        path = trigger_config.get("path", "")
+        pattern = trigger_config.get("pattern", "*")
+        event_types = trigger_config.get("event_types", ["created", "modified"])
+        if path:
+            _file_watcher.add_watcher(automation["id"], path, pattern, event_types)
+
+    return {"automation": automation}
+
+
+async def _rpc_automation_toggle(params: dict) -> dict:
+    """Enable or disable an automation."""
+    automation_id = params.get("id")
+    enabled = params.get("enabled", True)
+    if automation_id is None:
+        raise ValueError("Missing 'id' parameter")
+
+    def _toggle():
+        with get_session(_db_path) as conn:
+            if enabled:
+                enable_automation(conn, int(automation_id))
+            else:
+                disable_automation(conn, int(automation_id))
+            return get_automation(conn, int(automation_id))
+
+    automation = await asyncio.to_thread(_toggle)
+
+    # Update scheduler/watcher
+    aid = int(automation_id)
+    if automation:
+        trigger_type = automation.get("trigger_type", "")
+        if _scheduler and trigger_type == "schedule":
+            if enabled:
+                config = _safe_json_loads(automation.get("trigger_config"))
+                cron_expr = config.get("cron", "")
+                if cron_expr:
+                    _scheduler.add_automation(aid, automation["name"], cron_expr, automation["command"])
+            else:
+                _scheduler.remove_automation(aid)
+
+        if _file_watcher and trigger_type == "file_event":
+            if enabled:
+                config = _safe_json_loads(automation.get("trigger_config"))
+                path = config.get("path", "")
+                pattern = config.get("pattern", "*")
+                event_types = config.get("event_types", ["created", "modified"])
+                if path:
+                    _file_watcher.add_watcher(aid, path, pattern, event_types)
+            else:
+                _file_watcher.remove_watcher(aid)
+
+    return {"updated": True, "id": automation_id, "enabled": enabled}
+
+
+async def _rpc_automation_delete(params: dict) -> dict:
+    """Delete an automation."""
+    automation_id = params.get("id")
+    if automation_id is None:
+        raise ValueError("Missing 'id' parameter")
+
+    aid = int(automation_id)
+
+    # Remove from scheduler/watcher first
+    if _scheduler:
+        _scheduler.remove_automation(aid)
+    if _file_watcher:
+        _file_watcher.remove_watcher(aid)
+
+    def _delete():
+        with get_session(_db_path) as conn:
+            return delete_automation(conn, aid)
+
+    deleted = await asyncio.to_thread(_delete)
+    return {"deleted": deleted, "id": automation_id}
+
+
+async def _rpc_automation_confirm(params: dict) -> dict:
+    """Resolve a pending confirmation."""
+    confirmation_id = params.get("confirmation_id", "")
+    approved = params.get("approved", False)
+    if not confirmation_id:
+        raise ValueError("Missing 'confirmation_id' parameter")
+
+    resolved = resolve_confirmation(confirmation_id, approved)
+    return {"resolved": resolved, "confirmation_id": confirmation_id}
+
+
+async def _rpc_automation_pause_all(_params: dict) -> dict:
+    """Pause all automations globally."""
+    set_global_pause(True)
+    broadcast_sse_event({"type": "automation_status", "paused": True})
+    return {"paused": True}
+
+
+async def _rpc_automation_resume_all(_params: dict) -> dict:
+    """Resume all automations globally."""
+    set_global_pause(False)
+    broadcast_sse_event({"type": "automation_status", "paused": False})
+    return {"paused": False}
+
+
+async def _rpc_automation_pending_confirmations(_params: dict) -> dict:
+    """Get pending confirmations."""
+    return {"confirmations": get_pending_confirmations()}
+
+
+# ---------------------------------------------------------------------------
 # Method dispatch table
 # ---------------------------------------------------------------------------
 
@@ -492,6 +711,14 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.settings.get": _rpc_settings_get,
     "neo.settings.update": _rpc_settings_update,
     "neo.providers.list": _rpc_providers_list,
+    "neo.automation.list": _rpc_automation_list,
+    "neo.automation.create": _rpc_automation_create,
+    "neo.automation.toggle": _rpc_automation_toggle,
+    "neo.automation.delete": _rpc_automation_delete,
+    "neo.automation.confirm": _rpc_automation_confirm,
+    "neo.automation.pause_all": _rpc_automation_pause_all,
+    "neo.automation.resume_all": _rpc_automation_resume_all,
+    "neo.automation.pending_confirmations": _rpc_automation_pending_confirmations,
 }
 
 

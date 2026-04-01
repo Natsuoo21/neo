@@ -1,6 +1,7 @@
 import {
   MessageSquare,
   Zap,
+  Timer,
   ClipboardList,
   Settings,
   PanelLeftClose,
@@ -13,6 +14,7 @@ import { useNeoStore, type ViewId } from "@/stores/neoStore";
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof MessageSquare }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "skills", label: "Skills", icon: Zap },
+  { id: "automations", label: "Automations", icon: Timer },
   { id: "actions", label: "Action Log", icon: ClipboardList },
   { id: "settings", label: "Settings", icon: Settings },
 ];

@@ -135,3 +135,54 @@ export interface Provider {
 export interface ProvidersListResult {
   providers: Provider[];
 }
+
+// --- Automation types ---
+
+export interface Automation {
+  id: number;
+  name: string;
+  trigger_type: "schedule" | "file_event" | "startup" | "pattern";
+  trigger_config: string;
+  command: string;
+  is_enabled: number;
+  retry_count: number;
+  max_retries: number;
+  last_run_at: string | null;
+  last_status: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationListResult {
+  automations: Automation[];
+}
+
+export interface AutomationCreateResult {
+  automation: Automation;
+}
+
+export interface AutomationToggleResult {
+  updated: boolean;
+  id: number;
+  enabled: boolean;
+}
+
+export interface AutomationDeleteResult {
+  deleted: boolean;
+  id: number;
+}
+
+export interface ConfirmationRequest {
+  id: string;
+  automation_id: number;
+  action_description: string;
+  timeout_s?: number;
+}
+
+export interface AutomationPauseResult {
+  paused: boolean;
+}
+
+export interface PendingConfirmationsResult {
+  confirmations: ConfirmationRequest[];
+}

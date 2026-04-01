@@ -2,13 +2,16 @@ import TitleBar from "./TitleBar";
 import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import SkillBrowser from "./SkillBrowser";
+import AutomationManager from "./AutomationManager";
 import ActionLog from "./ActionLog";
 import SettingsPanel from "./SettingsPanel";
+import ConfirmationDialog from "./ConfirmationDialog";
 import { useNeoStore } from "@/stores/neoStore";
 
 const VIEW_COMPONENTS = {
   chat: ChatView,
   skills: SkillBrowser,
+  automations: AutomationManager,
   actions: ActionLog,
   settings: SettingsPanel,
 } as const;
@@ -26,6 +29,7 @@ export default function AppLayout() {
           <ViewComponent />
         </main>
       </div>
+      <ConfirmationDialog />
     </div>
   );
 }

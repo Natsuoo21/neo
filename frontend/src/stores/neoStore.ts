@@ -5,6 +5,8 @@
 import { create } from "zustand";
 import type {
   ActionLogEntry,
+  Automation,
+  ConfirmationRequest,
   ConversationSession,
   ExecuteResult,
   Provider,
@@ -12,7 +14,7 @@ import type {
   UserProfile,
 } from "@/types/rpc";
 
-export type ViewId = "chat" | "skills" | "actions" | "settings";
+export type ViewId = "chat" | "skills" | "automations" | "actions" | "settings";
 
 export interface ChatMessage {
   id: string;
@@ -78,6 +80,16 @@ interface NeoState {
   providers: Provider[];
   setProviders: (p: Provider[]) => void;
 
+  // Automations
+  automations: Automation[];
+  setAutomations: (a: Automation[]) => void;
+  automationsPaused: boolean;
+  setAutomationsPaused: (v: boolean) => void;
+  pendingConfirmations: ConfirmationRequest[];
+  setPendingConfirmations: (c: ConfirmationRequest[]) => void;
+  addPendingConfirmation: (c: ConfirmationRequest) => void;
+  removePendingConfirmation: (id: string) => void;
+
   // Sidebar
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -139,6 +151,20 @@ export const useNeoStore = create<NeoState>((set) => ({
   // Providers
   providers: [],
   setProviders: (p) => set({ providers: p }),
+
+  // Automations
+  automations: [],
+  setAutomations: (a) => set({ automations: a }),
+  automationsPaused: false,
+  setAutomationsPaused: (v) => set({ automationsPaused: v }),
+  pendingConfirmations: [],
+  setPendingConfirmations: (c) => set({ pendingConfirmations: c }),
+  addPendingConfirmation: (c) =>
+    set((s) => ({ pendingConfirmations: [...s.pendingConfirmations, c] })),
+  removePendingConfirmation: (id) =>
+    set((s) => ({
+      pendingConfirmations: s.pendingConfirmations.filter((c) => c.id !== id),
+    })),
 
   // Sidebar
   sidebarCollapsed: false,

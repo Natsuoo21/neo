@@ -318,6 +318,42 @@ def disable_automation(conn: sqlite3.Connection, automation_id: int) -> None:
     conn.execute("UPDATE automations SET is_enabled=0, updated_at=? WHERE id=?", (now, automation_id))
 
 
+def get_automation(conn: sqlite3.Connection, automation_id: int) -> dict | None:
+    """Get a single automation by ID."""
+    row = conn.execute("SELECT * FROM automations WHERE id = ?", (automation_id,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def delete_automation(conn: sqlite3.Connection, automation_id: int) -> bool:
+    """Delete an automation by ID. Returns True if deleted."""
+    cursor = conn.execute("DELETE FROM automations WHERE id = ?", (automation_id,))
+    return cursor.rowcount > 0
+
+
+def get_automations_by_trigger(conn: sqlite3.Connection, trigger_type: str) -> list[dict]:
+    """Get enabled automations filtered by trigger type."""
+    rows = conn.execute(
+        "SELECT * FROM automations WHERE trigger_type = ? AND is_enabled = 1 ORDER BY name",
+        (trigger_type,),
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_all_automations(conn: sqlite3.Connection) -> list[dict]:
+    """Get all automations (enabled and disabled)."""
+    rows = conn.execute("SELECT * FROM automations ORDER BY name").fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def enable_automation(conn: sqlite3.Connection, automation_id: int) -> None:
+    """Enable an automation."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE automations SET is_enabled=1, retry_count=0, updated_at=? WHERE id=?",
+        (now, automation_id),
+    )
+
+
 # ============================================
 # CONVERSATIONS
 # ============================================
