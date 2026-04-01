@@ -17,6 +17,7 @@ export default function SettingsPanel() {
   const [role, setRole] = useState("");
   const [saveDir, setSaveDir] = useState("");
   const [vaultPath, setVaultPath] = useState("");
+  const [defaultProvider, setDefaultProvider] = useState("");
   const [browserHeadless, setBrowserHeadless] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -31,6 +32,7 @@ export default function SettingsPanel() {
           setSaveDir(res.profile.tool_paths?.default_save_dir || "");
           setVaultPath(res.profile.tool_paths?.obsidian_vault || "");
           setBrowserHeadless(res.profile.preferences?.browser_headless !== "false");
+          setDefaultProvider(res.profile.preferences?.default_provider || "");
         }
       })
       .catch(console.error);
@@ -52,6 +54,7 @@ export default function SettingsPanel() {
         },
         preferences: {
           browser_headless: String(browserHeadless),
+          default_provider: defaultProvider,
         },
       });
       setSaved(true);
@@ -105,6 +108,25 @@ export default function SettingsPanel() {
           ) : (
             <p className="text-sm text-muted-foreground">No providers connected.</p>
           )}
+        </Section>
+
+        {/* Default Model */}
+        <Section title="Default Model">
+          <p className="text-xs text-muted-foreground mb-1">
+            Which provider handles complex or unknown tasks.
+          </p>
+          <select
+            value={defaultProvider}
+            onChange={(e) => setDefaultProvider(e.target.value)}
+            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 transition-colors"
+          >
+            <option value="">Automatic (recommended)</option>
+            {providers.map((p) => (
+              <option key={p.tier} value={p.tier}>
+                {p.tier} — {p.name}
+              </option>
+            ))}
+          </select>
         </Section>
 
         {/* Browser */}

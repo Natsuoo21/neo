@@ -34,7 +34,7 @@ from neo.automations.safety import (
     set_global_pause,
 )
 from neo.automations.suggestions import get_pending_suggestions
-from neo.llm.registry import build_provider_registry, check_ollama, select_provider
+from neo.llm.registry import build_provider_registry, check_ollama, get_fallback_providers, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
     accept_suggestion,
@@ -56,7 +56,7 @@ from neo.memory.models import (
 from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process, set_mcp_host
 from neo.plugins.mcp_host import MCPHost
-from neo.router import CLAUDE, route, strip_override
+from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
 
 logger = logging.getLogger(__name__)
@@ -165,15 +165,35 @@ _INTERNAL_ERROR = -32603
 def broadcast_sse_event(event_data: dict) -> None:
     """Push an event to all connected SSE subscribers (thread-safe).
 
-    Snapshots the subscriber list and copies the event dict to avoid
-    concurrent-modification and shared-mutation issues.
+    Uses call_soon_threadsafe to safely enqueue from background threads
+    (voice transcription, suggestions engine, etc.).
     """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
     snapshot = list(_sse_subscribers)
-    for queue in snapshot:
+    data_copy = dict(event_data)
+
+    def _enqueue() -> None:
+        for q in snapshot:
+            try:
+                q.put_nowait(data_copy)
+            except asyncio.QueueFull:
+                logger.warning("SSE subscriber queue full, dropping event")
+
+    if loop is not None and loop.is_running():
+        # Already in the event loop thread — safe to call directly
+        _enqueue()
+    else:
+        # Called from a background thread — schedule on the event loop
         try:
-            queue.put_nowait(dict(event_data))
-        except asyncio.QueueFull:
-            logger.warning("SSE subscriber queue full, dropping event")
+            loop = asyncio.get_event_loop()
+            loop.call_soon_threadsafe(_enqueue)
+        except RuntimeError:
+            # No event loop at all (e.g. during shutdown) — drop silently
+            pass
 
 
 @asynccontextmanager
@@ -246,6 +266,20 @@ async def lifespan(app: FastAPI):
             set_mcp_host(None)
         except (RuntimeError, OSError):
             logger.exception("Error shutting down MCP host")
+
+    # I8: Graceful STT/TTS shutdown
+    if _stt:
+        try:
+            _stt.stop_recording()
+            _stt.stop_wake_word()
+        except Exception:
+            logger.exception("Error shutting down STT")
+
+    if _tts:
+        try:
+            _tts.stop()
+        except Exception:
+            logger.exception("Error shutting down TTS")
 
 
 app = FastAPI(title="Neo Server", version="0.1.0", lifespan=lifespan)
@@ -335,7 +369,17 @@ async def _rpc_health(_params: dict) -> dict:
 
 def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -> dict:
     """Synchronous execute logic — runs in a thread via asyncio.to_thread()."""
-    tier = route(command)
+    # Read default provider preference from user profile
+    default_tier = CLAUDE
+    with get_session(db_path) as conn:
+        profile = get_user_profile(conn)
+        if profile:
+            prefs = _safe_json_loads(profile.get("preferences"))
+            pref = prefs.get("default_provider", "")
+            if pref in (LOCAL, GEMINI, OPENAI, CLAUDE):
+                default_tier = pref
+
+    tier = route(command, default_tier=default_tier)
     clean_command = strip_override(command)
     provider = select_provider(registry, tier)
 
@@ -357,15 +401,27 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
             messages = [{"role": h["role"], "content": h["content"]} for h in history]
             messages.append({"role": "user", "content": clean_command})
 
-            result = loop.run_until_complete(process(
-                clean_command,
-                provider,
-                conn,
-                skill_content,
-                skill_name=skill_name,
-                routed_tier=tier,
-                messages=messages,
-            ))
+            # Try primary provider, then fallback on runtime errors
+            providers_to_try = [(tier, provider)]
+            providers_to_try.extend(get_fallback_providers(registry, tier))
+
+            result = None
+            for attempt_tier, attempt_provider in providers_to_try:
+                result = loop.run_until_complete(process(
+                    clean_command,
+                    attempt_provider,
+                    conn,
+                    skill_content,
+                    skill_name=skill_name,
+                    routed_tier=attempt_tier,
+                    messages=messages,
+                ))
+                if result["status"] == "success":
+                    break
+                logger.warning(
+                    "Provider %s failed, trying next fallback...",
+                    attempt_provider.name(),
+                )
 
             add_message(conn, session_id, "user", clean_command)
             if result["status"] == "success":
@@ -816,6 +872,18 @@ async def _rpc_plugin_install(params: dict) -> dict:
     return {"started": started, "name": name}
 
 
+async def _rpc_plugin_stop(params: dict) -> dict:
+    """Stop a plugin without unregistering it."""
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    stopped = _mcp_host.stop_plugin(name)
+    return {"stopped": stopped, "name": name}
+
+
 async def _rpc_plugin_remove(params: dict) -> dict:
     """Stop and unregister a plugin by name."""
     name = params.get("name", "").strip()
@@ -854,14 +922,21 @@ async def _rpc_voice_start(params: dict) -> dict:
     """Start voice input (recording from microphone)."""
     global _stt
 
+    model = params.get("model", "base")
+    language = params.get("language", "en")
+
     if _stt is None:
         try:
             from neo.voice.stt import WhisperSTT
-            model = params.get("model", "base")
-            language = params.get("language", "en")
             _stt = WhisperSTT(model_name=model, language=language)
         except ImportError as e:
             raise RuntimeError(str(e))
+    else:
+        # I7: Update config if params changed
+        if _stt.model_name != model or _stt.language != language:
+            _stt.model_name = model
+            _stt.language = language
+            _stt._model = None  # Force model reload
 
     def _on_transcription(text: str) -> None:
         broadcast_sse_event({"type": "voice_transcription", "text": text})
@@ -954,6 +1029,7 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.suggestions.accept": _rpc_suggestions_accept,
     "neo.plugin.list": _rpc_plugin_list,
     "neo.plugin.install": _rpc_plugin_install,
+    "neo.plugin.stop": _rpc_plugin_stop,
     "neo.plugin.remove": _rpc_plugin_remove,
     "neo.plugin.status": _rpc_plugin_status,
     "neo.voice.start": _rpc_voice_start,

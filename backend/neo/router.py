@@ -57,12 +57,13 @@ _GEMINI_KEYWORDS = frozenset(
 _OVERRIDE_PREFIXES = ("@claude ", "@openai ", "@local ", "@gemini ")
 
 
-def route(command: str, token_count: int = 0) -> str:
+def route(command: str, token_count: int = 0, default_tier: str = CLAUDE) -> str:
     """Determine the optimal model tier for a given command.
 
     Args:
         command: The user's raw command string.
         token_count: Estimated token count of the full context (optional).
+        default_tier: Tier to use for complex/unknown tasks (default: CLAUDE).
 
     Returns:
         'LOCAL', 'GEMINI', 'OPENAI', or 'CLAUDE'
@@ -88,8 +89,8 @@ def route(command: str, token_count: int = 0) -> str:
     if token_count > 0 and token_count < 500:
         return LOCAL
 
-    # 4. Default to Claude for complex tasks
-    return CLAUDE
+    # 4. Default to configured tier for complex tasks
+    return default_tier
 
 
 def strip_override(command: str) -> str:
