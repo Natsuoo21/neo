@@ -682,6 +682,36 @@ async def _rpc_automation_pending_confirmations(_params: dict) -> dict:
     return {"confirmations": get_pending_confirmations()}
 
 
+async def _rpc_automation_run(params: dict) -> dict:
+    """Manually trigger an automation now."""
+    automation_id = params.get("id")
+    if automation_id is None:
+        raise ValueError("Missing 'id' parameter")
+
+    aid = int(automation_id)
+
+    def _get_auto():
+        with get_session(_db_path) as conn:
+            return get_automation(conn, aid)
+
+    automation = await asyncio.to_thread(_get_auto)
+    if not automation:
+        raise ValueError(f"Automation not found: {aid}")
+
+    command = automation["command"]
+
+    # Execute via scheduler if available
+    if _scheduler:
+        _scheduler._execute_automation(aid, command)
+        return {"triggered": True, "id": aid}
+
+    # Fallback: execute directly through orchestrator
+    result = await asyncio.to_thread(
+        _execute_sync, command, str(uuid.uuid4()), _db_path, _registry,
+    )
+    return {"triggered": True, "id": aid, "result": result}
+
+
 # ---------------------------------------------------------------------------
 # Method dispatch table
 # ---------------------------------------------------------------------------
@@ -708,6 +738,7 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.automation.pause_all": _rpc_automation_pause_all,
     "neo.automation.resume_all": _rpc_automation_resume_all,
     "neo.automation.pending_confirmations": _rpc_automation_pending_confirmations,
+    "neo.automation.run": _rpc_automation_run,
 }
 
 

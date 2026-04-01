@@ -186,3 +186,32 @@ export interface AutomationPauseResult {
 export interface PendingConfirmationsResult {
   confirmations: ConfirmationRequest[];
 }
+
+export interface AutomationRunResult {
+  triggered: boolean;
+  id: number;
+  result?: ExecuteResult;
+}
+
+export interface StatsResult {
+  stats: {
+    total_requests: number;
+    success_count: number;
+    error_count: number;
+    total_duration_ms: number;
+    total_tokens: number;
+    total_cost: number;
+    model_breakdown: { model_used: string; count: number; tokens: number; cost: number }[];
+    tool_breakdown: { tool_used: string; count: number }[];
+    tier_breakdown: { routed_tier: string; count: number }[];
+  };
+}
+
+export interface PatternsResult {
+  patterns: {
+    pattern: string;
+    count: number;
+    last_run: string;
+    sample_input: string;
+  }[];
+}

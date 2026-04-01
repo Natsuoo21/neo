@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
 import type { ExecuteResult } from "@/types/rpc";
@@ -8,6 +9,8 @@ export default function FloatingBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
   const [historyIdx, setHistoryIdx] = useState(-1);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
 
   const loading = useNeoStore((s) => s.loading);
   const setLoading = useNeoStore((s) => s.setLoading);
@@ -15,6 +18,21 @@ export default function FloatingBar() {
   const setLastResult = useNeoStore((s) => s.setLastResult);
   const commandHistory = useNeoStore((s) => s.commandHistory);
   const addToHistory = useNeoStore((s) => s.addToHistory);
+
+  // Filter suggestions from command history
+  const suggestions = useMemo(() => {
+    if (!input.trim() || input.length < 2) return [];
+    const lower = input.toLowerCase();
+    return commandHistory
+      .filter((cmd) => cmd.toLowerCase().includes(lower) && cmd !== input)
+      .slice(0, 5);
+  }, [input, commandHistory]);
+
+  // Show/hide suggestions
+  useEffect(() => {
+    setShowSuggestions(suggestions.length > 0);
+    setSelectedSuggestion(-1);
+  }, [suggestions]);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -39,6 +57,7 @@ export default function FloatingBar() {
   const dismiss = useCallback(async () => {
     setLastResult(null);
     setInput("");
+    setShowSuggestions(false);
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().hide();
@@ -53,6 +72,7 @@ export default function FloatingBar() {
 
     addToHistory(cmd);
     setInput("");
+    setShowSuggestions(false);
     setLoading(true);
     setLastResult(null);
 
@@ -75,43 +95,95 @@ export default function FloatingBar() {
     }
   }, [input, loading, addToHistory, setLoading, setLastResult]);
 
+  const applySuggestion = useCallback(
+    (suggestion: string) => {
+      setInput(suggestion);
+      setShowSuggestions(false);
+      setSelectedSuggestion(-1);
+      inputRef.current?.focus();
+    },
+    [],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        dismiss();
+        if (showSuggestions) {
+          setShowSuggestions(false);
+        } else {
+          dismiss();
+        }
         return;
+      }
+
+      // Navigate suggestions
+      if (showSuggestions && suggestions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedSuggestion((prev) =>
+            prev < suggestions.length - 1 ? prev + 1 : 0,
+          );
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedSuggestion((prev) =>
+            prev > 0 ? prev - 1 : suggestions.length - 1,
+          );
+          return;
+        }
+        if (e.key === "Tab" && selectedSuggestion >= 0) {
+          e.preventDefault();
+          applySuggestion(suggestions[selectedSuggestion]);
+          return;
+        }
       }
 
       if (e.key === "Enter") {
         e.preventDefault();
-        handleSubmit();
+        if (showSuggestions && selectedSuggestion >= 0) {
+          applySuggestion(suggestions[selectedSuggestion]);
+        } else {
+          handleSubmit();
+        }
         return;
       }
 
-      // Command history navigation
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        if (commandHistory.length === 0) return;
-        const next = Math.min(historyIdx + 1, commandHistory.length - 1);
-        setHistoryIdx(next);
-        setInput(commandHistory[next]);
-        return;
-      }
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        if (historyIdx <= 0) {
-          setHistoryIdx(-1);
-          setInput("");
+      // Command history navigation (only when no suggestions shown)
+      if (!showSuggestions) {
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (commandHistory.length === 0) return;
+          const next = Math.min(historyIdx + 1, commandHistory.length - 1);
+          setHistoryIdx(next);
+          setInput(commandHistory[next]);
           return;
         }
-        const next = historyIdx - 1;
-        setHistoryIdx(next);
-        setInput(commandHistory[next]);
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (historyIdx <= 0) {
+            setHistoryIdx(-1);
+            setInput("");
+            return;
+          }
+          const next = historyIdx - 1;
+          setHistoryIdx(next);
+          setInput(commandHistory[next]);
+        }
       }
     },
-    [dismiss, handleSubmit, commandHistory, historyIdx],
+    [
+      dismiss,
+      handleSubmit,
+      commandHistory,
+      historyIdx,
+      showSuggestions,
+      suggestions,
+      selectedSuggestion,
+      applySuggestion,
+    ],
   );
 
   return (
@@ -131,6 +203,10 @@ export default function FloatingBar() {
               setHistoryIdx(-1);
             }}
             onKeyDown={handleKeyDown}
+            onBlur={() => {
+              // Delay to allow click on suggestion
+              setTimeout(() => setShowSuggestions(false), 200);
+            }}
             placeholder="Type a command..."
             disabled={loading}
             className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground text-sm"
@@ -141,6 +217,26 @@ export default function FloatingBar() {
             <Loader2 className="w-4 h-4 text-primary animate-spin" />
           )}
         </div>
+
+        {/* Autocomplete suggestions */}
+        {showSuggestions && (
+          <div className="border-t border-border">
+            {suggestions.map((suggestion, idx) => (
+              <button
+                key={suggestion}
+                onClick={() => applySuggestion(suggestion)}
+                className={cn(
+                  "w-full text-left px-4 py-2 text-sm transition-colors",
+                  idx === selectedSuggestion
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50",
+                )}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Result display */}
         {lastResult && (

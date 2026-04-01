@@ -333,6 +333,35 @@ def test_patterns(client):
     assert isinstance(data["patterns"], list)
 
 
+# ---- neo.automation.run ----------------------------------------------------
+
+def test_automation_run(client):
+    """Create an automation then manually trigger it."""
+    r = _rpc(client, "neo.automation.create", {
+        "name": "Test Run",
+        "trigger_type": "schedule",
+        "command": "hello",
+        "trigger_config": {"cron": "0 * * * *"},
+    })
+    auto = r.json()["result"]["automation"]
+    r = _rpc(client, "neo.automation.run", {"id": auto["id"]})
+    data = r.json()["result"]
+    assert data["triggered"] is True
+    assert data["id"] == auto["id"]
+
+
+def test_automation_run_missing_id(client):
+    r = _rpc(client, "neo.automation.run", {})
+    data = r.json()
+    assert "error" in data
+
+
+def test_automation_run_nonexistent(client):
+    r = _rpc(client, "neo.automation.run", {"id": 99999})
+    data = r.json()
+    assert "error" in data
+
+
 # ---- neo.providers.list ----------------------------------------------------
 
 def test_providers_list(client):
