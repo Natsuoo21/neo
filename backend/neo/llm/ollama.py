@@ -5,6 +5,7 @@ Falls back gracefully if Ollama is not running.
 """
 
 import logging
+import os
 
 import httpx
 
@@ -13,16 +14,16 @@ from neo.llm.provider import LLMProvider
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "http://localhost:11434"
-_DEFAULT_MODEL = "llama3.1:8b"
+_DEFAULT_MODEL = "qwen2.5:3b"
 _TIMEOUT = 120.0  # seconds — local models can be slow on first load
 
 
 class OllamaProvider(LLMProvider):
     """Local LLM provider via Ollama HTTP API."""
 
-    def __init__(self, base_url: str = _DEFAULT_BASE_URL, model: str = _DEFAULT_MODEL):
-        self._base_url = base_url.rstrip("/")
-        self._model = model
+    def __init__(self, base_url: str | None = None, model: str | None = None):
+        self._base_url = (base_url or os.environ.get("OLLAMA_HOST", _DEFAULT_BASE_URL)).rstrip("/")
+        self._model = model or os.environ.get("OLLAMA_MODEL", _DEFAULT_MODEL)
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
