@@ -453,9 +453,16 @@ async def process(
     except Exception as e:
         logger.exception("Orchestrator error")
         result["status"] = "error"
-        # Surface meaningful error messages (e.g., rate limits) instead of generic text
         err_msg = str(e)
-        if err_msg and len(err_msg) < 200:
+        # Translate common API errors into user-friendly messages
+        lower = err_msg.lower()
+        if "credit balance" in lower or "billing" in lower:
+            result["message"] = "API credits exhausted. Please top up your account or switch providers."
+        elif "api key" in lower or "authentication" in lower or "unauthorized" in lower:
+            result["message"] = "Invalid or missing API key. Check your configuration."
+        elif "rate limit" in lower or "too many requests" in lower:
+            result["message"] = "Rate limited by the AI provider. Please wait a moment and try again."
+        elif err_msg and len(err_msg) < 200:
             result["message"] = err_msg
         else:
             result["message"] = "An internal error occurred. Check logs for details."
@@ -493,10 +500,10 @@ def dispatch_tool(tool_name: str, tool_input: dict) -> str:
     Raises ToolError on failure instead of returning error strings.
     Returns a string describing the result.
     """
-    # Plugin tool dispatch: plugin_{plugin_name}_{tool_name}
-    if tool_name.startswith("plugin_") and _mcp_host is not None:
-        parts = tool_name.split("_", 2)  # ["plugin", plugin_name, tool_name]
-        if len(parts) < 3:
+    # Plugin tool dispatch: plugin::{plugin_name}::{tool_name}
+    if tool_name.startswith("plugin::") and _mcp_host is not None:
+        parts = tool_name.split("::", 2)  # ["plugin", plugin_name, tool_name]
+        if len(parts) < 3 or not parts[1] or not parts[2]:
             raise ToolError(f"Invalid plugin tool name: {tool_name}")
         plugin_name, plugin_tool = parts[1], parts[2]
         try:
