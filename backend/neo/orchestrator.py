@@ -56,7 +56,7 @@ TOOL_DEFINITIONS = [
                         "properties": {
                             "name": {"type": "string"},
                             "headers": {"type": "array", "items": {"type": "string"}},
-                            "rows": {"type": "array", "items": {"type": "array"}},
+                            "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
                         },
                         "required": ["name"],
                     },

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 
-from openai import APIError, AsyncOpenAI
+from openai import APIError, APIStatusError, AsyncOpenAI
 
 from neo.llm.provider import LLMProvider
 
@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = "gpt-4o"
 _MAX_RETRIES = 3
 _RETRY_DELAY = 1.0  # seconds, doubles each retry
+
+# HTTP status codes that are permanent failures — retrying won't help
+_NON_RETRYABLE_STATUSES = {400, 401, 403, 404}
 
 
 class OpenAIProvider(LLMProvider):
@@ -51,6 +54,9 @@ class OpenAIProvider(LLMProvider):
                     return ""
                 return choice.message.content
             except APIError as e:
+                if isinstance(e, APIStatusError) and e.status_code in _NON_RETRYABLE_STATUSES:
+                    logger.error("OpenAI API permanent failure (HTTP %d): %s", e.status_code, e)
+                    raise
                 if attempt == _MAX_RETRIES:
                     logger.error("OpenAI API failed after %d attempts: %s", _MAX_RETRIES, e)
                     raise
@@ -95,6 +101,9 @@ class OpenAIProvider(LLMProvider):
                     return {"type": "text", "content": ""}
                 return self._parse_tool_response(choice)
             except APIError as e:
+                if isinstance(e, APIStatusError) and e.status_code in _NON_RETRYABLE_STATUSES:
+                    logger.error("OpenAI API permanent failure (HTTP %d): %s", e.status_code, e)
+                    raise
                 if attempt == _MAX_RETRIES:
                     logger.error("OpenAI API failed after %d attempts: %s", _MAX_RETRIES, e)
                     raise
