@@ -10,6 +10,8 @@ Rule 5: Global pause stops all automations instantly.
 import asyncio
 import logging
 import os
+import sqlite3
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -23,21 +25,24 @@ from neo.memory.models import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Rule 5 — Global pause
+# Rule 5 — Global pause (threading.Lock for cross-thread safety)
 # ---------------------------------------------------------------------------
 
+_pause_lock = threading.Lock()
 _global_paused: bool = False
 
 
 def is_globally_paused() -> bool:
     """Check if all automations are paused."""
-    return _global_paused
+    with _pause_lock:
+        return _global_paused
 
 
 def set_global_pause(paused: bool) -> None:
     """Set the global pause state for all automations."""
     global _global_paused
-    _global_paused = paused
+    with _pause_lock:
+        _global_paused = paused
     logger.info("Global automation pause set to %s", paused)
 
 
@@ -53,12 +58,12 @@ DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset({
     "fill_form",
 })
 
-# Tool-specific destructive checks: (tool_name, input_key, input_value)
-_TOOL_DESTRUCTIVE_CHECKS: list[tuple[str, str, str]] = [
-    ("manage_file", "action", "delete"),
-    ("send_email", "", ""),
-    ("reply_to", "", ""),
-]
+_DESTRUCTIVE_TOOL_NAMES: frozenset[str] = frozenset({
+    "send_email",
+    "reply_to",
+    "fill_form",
+    "submit_form",
+})
 
 
 def is_destructive(action: str, tool_name: str = "", tool_input: dict | None = None) -> bool:
@@ -75,27 +80,32 @@ def is_destructive(action: str, tool_name: str = "", tool_input: dict | None = N
     if action.lower() in DESTRUCTIVE_ACTIONS:
         return True
 
-    if tool_name == "manage_file" and tool_input:
+    if tool_name in _DESTRUCTIVE_TOOL_NAMES:
+        return True
+
+    if tool_name == "manage_file" and isinstance(tool_input, dict):
         if tool_input.get("action") == "delete":
             return True
-
-    if tool_name in ("send_email", "reply_to", "fill_form", "submit_form"):
-        return True
 
     return False
 
 
 @dataclass
 class PendingConfirmation:
-    """A pending user confirmation for a destructive action."""
+    """A pending user confirmation for a destructive action.
+
+    Note: `future` is NOT set via default_factory — it must be created
+    explicitly with the correct event loop context by the caller.
+    """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     automation_id: int = 0
     action_description: str = ""
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_event_loop().create_future())
+    future: asyncio.Future | None = field(default=None, repr=False)
 
 
-# In-memory store of pending confirmations
+# In-memory store of pending confirmations, guarded by a lock
+_pending_lock = threading.Lock()
 _pending: dict[str, PendingConfirmation] = {}
 
 
@@ -125,7 +135,9 @@ async def request_confirmation(
         action_description=action_description,
         future=loop.create_future(),
     )
-    _pending[confirmation.id] = confirmation
+
+    with _pending_lock:
+        _pending[confirmation.id] = confirmation
 
     # Notify frontend via SSE
     if notify_callback:
@@ -141,17 +153,22 @@ async def request_confirmation(
             logger.exception("Failed to send confirmation notification")
 
     try:
+        assert confirmation.future is not None
         result = await asyncio.wait_for(confirmation.future, timeout=timeout_s)
         return bool(result)
     except asyncio.TimeoutError:
-        logger.warning("Confirmation timed out for automation %d: %s", automation_id, action_description)
+        logger.warning(
+            "Confirmation timed out for automation %d: %s",
+            automation_id, action_description,
+        )
         return False
     finally:
-        _pending.pop(confirmation.id, None)
+        with _pending_lock:
+            _pending.pop(confirmation.id, None)
 
 
 def resolve_confirmation(confirmation_id: str, approved: bool) -> bool:
-    """Resolve a pending confirmation.
+    """Resolve a pending confirmation (thread-safe).
 
     Args:
         confirmation_id: UUID of the pending confirmation.
@@ -160,25 +177,34 @@ def resolve_confirmation(confirmation_id: str, approved: bool) -> bool:
     Returns:
         True if the confirmation was found and resolved.
     """
-    confirmation = _pending.get(confirmation_id)
-    if confirmation is None:
+    with _pending_lock:
+        confirmation = _pending.get(confirmation_id)
+
+    if confirmation is None or confirmation.future is None:
         return False
 
-    if not confirmation.future.done():
-        confirmation.future.set_result(approved)
+    try:
+        if not confirmation.future.done():
+            confirmation.future.set_result(approved)
+    except asyncio.InvalidStateError:
+        # Future was already resolved (race between timeout and manual resolve)
+        logger.debug("Confirmation %s already resolved", confirmation_id)
 
     return True
 
 
 def get_pending_confirmations() -> list[dict]:
-    """Get all pending confirmations as dicts for the frontend."""
+    """Get all pending confirmations as dicts for the frontend (thread-safe)."""
+    with _pending_lock:
+        items = list(_pending.values())
+
     return [
         {
             "id": c.id,
             "automation_id": c.automation_id,
             "action_description": c.action_description,
         }
-        for c in _pending.values()
+        for c in items
     ]
 
 
@@ -187,7 +213,7 @@ def get_pending_confirmations() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def log_before_execution(conn: Any, automation_id: int, command: str) -> int:
+def log_before_execution(conn: sqlite3.Connection, automation_id: int, command: str) -> int:
     """Log an action before execution with status='pending'.
 
     Returns the log entry ID.
@@ -203,7 +229,7 @@ def log_before_execution(conn: Any, automation_id: int, command: str) -> int:
 
 
 def log_after_execution(
-    conn: Any,
+    conn: sqlite3.Connection,
     automation_id: int,
     command: str,
     status: str,
@@ -233,7 +259,7 @@ _DEFAULT_MAX_RETRIES = 3
 
 
 def handle_failure(
-    conn: Any,
+    conn: sqlite3.Connection,
     automation_id: int,
     current_retry: int,
     max_retries: int = _DEFAULT_MAX_RETRIES,

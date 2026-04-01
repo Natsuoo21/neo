@@ -199,10 +199,15 @@ _INTERNAL_ERROR = -32603
 # ---------------------------------------------------------------------------
 
 def broadcast_sse_event(event_data: dict) -> None:
-    """Push an event to all connected SSE subscribers (thread-safe)."""
-    for queue in _sse_subscribers:
+    """Push an event to all connected SSE subscribers (thread-safe).
+
+    Snapshots the subscriber list and copies the event dict to avoid
+    concurrent-modification and shared-mutation issues.
+    """
+    snapshot = list(_sse_subscribers)
+    for queue in snapshot:
         try:
-            queue.put_nowait(event_data)
+            queue.put_nowait(dict(event_data))
         except asyncio.QueueFull:
             logger.warning("SSE subscriber queue full, dropping event")
 
@@ -296,8 +301,9 @@ async def stream(request: Request):
                     break
                 try:
                     event_data = await asyncio.wait_for(queue.get(), timeout=15)
-                    event_type = event_data.pop("type", "message")
-                    yield {"event": event_type, "data": json.dumps(event_data)}
+                    event_type = event_data.get("type", "message")
+                    payload = {k: v for k, v in event_data.items() if k != "type"}
+                    yield {"event": event_type, "data": json.dumps(payload)}
                 except asyncio.TimeoutError:
                     yield {"event": "ping", "data": json.dumps({"status": "alive"})}
         finally:

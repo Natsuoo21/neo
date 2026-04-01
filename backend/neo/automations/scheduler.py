@@ -26,6 +26,9 @@ from neo.automations.safety import (
 )
 from neo.memory.db import get_session
 from neo.memory.models import get_automation, get_automations_by_trigger, update_automation_status
+from neo.orchestrator import process
+from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
+from neo.skills.loader import route_skill_with_name
 
 logger = logging.getLogger(__name__)
 
@@ -301,18 +304,16 @@ class NeoScheduler:
                     return
 
             # RULE 4 — Check API key availability
-            from neo.router import route
             tier = route(command)
+            original_tier = tier
             if not check_api_key_available(tier):
-                tier = "LOCAL"
+                tier = LOCAL
                 if not check_api_key_available(tier):
-                    raise RuntimeError(f"No API key available for tier {tier}")
+                    raise RuntimeError(
+                        f"No API key for tier {original_tier} (LOCAL fallback also unavailable)"
+                    )
 
             # Execute via orchestrator
-            from neo.orchestrator import process
-            from neo.router import strip_override
-            from neo.skills.loader import route_skill_with_name
-
             clean_command = strip_override(command)
             provider = self._select_provider(tier)
             if provider is None:
@@ -376,7 +377,6 @@ class NeoScheduler:
 
     def _select_provider(self, tier: str) -> Any:
         """Select an LLM provider with fallback chain."""
-        from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI
         fallback = [LOCAL, GEMINI, OPENAI, CLAUDE]
 
         if tier in self._registry:
