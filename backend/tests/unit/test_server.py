@@ -308,6 +308,31 @@ def test_settings_update_preferences_merge(client):
     assert prefs.get("timezone") == "UTC"
 
 
+# ---- neo.stats -------------------------------------------------------------
+
+def test_stats(client):
+    _rpc(client, "neo.execute", {"command": "hello"})
+    r = _rpc(client, "neo.stats")
+    data = r.json()["result"]
+    assert "stats" in data
+    assert data["stats"]["total_requests"] >= 1
+
+
+def test_stats_with_days(client):
+    r = _rpc(client, "neo.stats", {"days": 7})
+    data = r.json()["result"]
+    assert "stats" in data
+
+
+# ---- neo.patterns ----------------------------------------------------------
+
+def test_patterns(client):
+    r = _rpc(client, "neo.patterns")
+    data = r.json()["result"]
+    assert "patterns" in data
+    assert isinstance(data["patterns"], list)
+
+
 # ---- neo.providers.list ----------------------------------------------------
 
 def test_providers_list(client):

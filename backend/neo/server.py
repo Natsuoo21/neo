@@ -39,12 +39,14 @@ from neo.memory.models import (
     add_message,
     create_automation,
     delete_automation,
+    detect_patterns,
     disable_automation,
     enable_automation,
     get_all_automations,
     get_automation,
     get_conversation,
     get_recent_actions,
+    get_stats,
     get_user_profile,
     upsert_user_profile,
 )
@@ -497,6 +499,30 @@ async def _rpc_settings_update(params: dict) -> dict:
     return {"updated": True}
 
 
+async def _rpc_stats(params: dict) -> dict:
+    """Get telemetry stats."""
+    days = _clamp_limit(params.get("days", 30), default=30, maximum=365)
+
+    def _query():
+        with get_session(_db_path) as conn:
+            return get_stats(conn, days=days)
+
+    stats = await asyncio.to_thread(_query)
+    return {"stats": stats}
+
+
+async def _rpc_patterns(params: dict) -> dict:
+    """Get detected command patterns."""
+    days = _clamp_limit(params.get("days", 14), default=14, maximum=365)
+
+    def _query():
+        with get_session(_db_path) as conn:
+            return detect_patterns(conn, days=days)
+
+    patterns = await asyncio.to_thread(_query)
+    return {"patterns": patterns}
+
+
 async def _rpc_providers_list(_params: dict) -> dict:
     """List available LLM providers."""
     providers = []
@@ -669,6 +695,8 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.skills.list": _rpc_skills_list,
     "neo.skills.toggle": _rpc_skills_toggle,
     "neo.actions.recent": _rpc_actions_recent,
+    "neo.stats": _rpc_stats,
+    "neo.patterns": _rpc_patterns,
     "neo.settings.get": _rpc_settings_get,
     "neo.settings.update": _rpc_settings_update,
     "neo.providers.list": _rpc_providers_list,

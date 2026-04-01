@@ -177,6 +177,60 @@ def get_actions_by_tool(conn: sqlite3.Connection, tool_name: str, limit: int = 5
     return [_row_to_dict(r) for r in rows]
 
 
+def get_stats(conn: sqlite3.Connection, days: int = 30) -> dict:
+    """Get telemetry stats for the last N days.
+
+    Returns dict with: total_requests, success_count, error_count,
+    total_duration_ms, total_tokens, total_cost, model_breakdown, tool_breakdown.
+    """
+    row = conn.execute(
+        """SELECT
+            COUNT(*) AS total_requests,
+            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
+            COALESCE(SUM(duration_ms), 0) AS total_duration_ms,
+            COALESCE(SUM(tokens_used), 0) AS total_tokens,
+            COALESCE(SUM(cost_brl), 0) AS total_cost
+        FROM action_log
+        WHERE created_at >= datetime('now', ?)""",
+        (f"-{days} days",),
+    ).fetchone()
+
+    stats = dict(row) if row else {}
+
+    # Model breakdown
+    model_rows = conn.execute(
+        """SELECT model_used, COUNT(*) AS count, SUM(tokens_used) AS tokens, SUM(cost_brl) AS cost
+        FROM action_log
+        WHERE created_at >= datetime('now', ?) AND model_used != ''
+        GROUP BY model_used ORDER BY count DESC""",
+        (f"-{days} days",),
+    ).fetchall()
+    stats["model_breakdown"] = [dict(r) for r in model_rows]
+
+    # Tool breakdown
+    tool_rows = conn.execute(
+        """SELECT tool_used, COUNT(*) AS count
+        FROM action_log
+        WHERE created_at >= datetime('now', ?) AND tool_used != ''
+        GROUP BY tool_used ORDER BY count DESC""",
+        (f"-{days} days",),
+    ).fetchall()
+    stats["tool_breakdown"] = [dict(r) for r in tool_rows]
+
+    # Routed tier breakdown
+    tier_rows = conn.execute(
+        """SELECT routed_tier, COUNT(*) AS count
+        FROM action_log
+        WHERE created_at >= datetime('now', ?) AND routed_tier != ''
+        GROUP BY routed_tier ORDER BY count DESC""",
+        (f"-{days} days",),
+    ).fetchall()
+    stats["tier_breakdown"] = [dict(r) for r in tier_rows]
+
+    return stats
+
+
 def detect_patterns(conn: sqlite3.Connection, days: int = 14, min_count: int = 3) -> list[dict]:
     """Detect repeated command patterns in the action_log.
 

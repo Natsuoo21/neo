@@ -21,6 +21,7 @@ from neo.memory.models import (
     get_project,
     get_recent_actions,
     get_skill_by_task_type,
+    get_stats,
     get_user_profile,
     log_action,
     update_automation_status,
@@ -359,3 +360,39 @@ class TestSeed:
         assert result is False
         profile = get_user_profile(conn)
         assert profile["name"] == "Original"
+
+
+# ============================================
+# TELEMETRY STATS
+# ============================================
+
+
+class TestStats:
+    def test_empty_stats(self, conn):
+        stats = get_stats(conn, days=30)
+        assert stats["total_requests"] == 0
+
+    def test_stats_with_data(self, conn):
+        log_action(conn, "test cmd 1", model_used="claude", routed_tier="CLAUDE", tokens_used=100, cost_brl=0.01)
+        log_action(conn, "test cmd 2", model_used="gemini", routed_tier="GEMINI", tokens_used=50, tool_used="excel")
+        log_action(conn, "test cmd 3", model_used="claude", routed_tier="CLAUDE", status="error")
+        conn.commit()
+
+        stats = get_stats(conn, days=30)
+        assert stats["total_requests"] == 3
+        assert stats["success_count"] == 2
+        assert stats["error_count"] == 1
+        assert stats["total_tokens"] == 150
+        assert stats["total_cost"] == 0.01
+
+        # Model breakdown
+        assert len(stats["model_breakdown"]) == 2
+        claude_entry = next(m for m in stats["model_breakdown"] if m["model_used"] == "claude")
+        assert claude_entry["count"] == 2
+
+        # Tool breakdown
+        assert len(stats["tool_breakdown"]) == 1
+        assert stats["tool_breakdown"][0]["tool_used"] == "excel"
+
+        # Tier breakdown
+        assert len(stats["tier_breakdown"]) == 2
