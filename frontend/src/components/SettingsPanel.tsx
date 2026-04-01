@@ -17,6 +17,7 @@ export default function SettingsPanel() {
   const [role, setRole] = useState("");
   const [saveDir, setSaveDir] = useState("");
   const [vaultPath, setVaultPath] = useState("");
+  const [browserHeadless, setBrowserHeadless] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -29,6 +30,7 @@ export default function SettingsPanel() {
           setRole(res.profile.role);
           setSaveDir(res.profile.tool_paths?.default_save_dir || "");
           setVaultPath(res.profile.tool_paths?.obsidian_vault || "");
+          setBrowserHeadless(res.profile.preferences?.browser_headless !== "false");
         }
       })
       .catch(console.error);
@@ -47,6 +49,9 @@ export default function SettingsPanel() {
         tool_paths: {
           default_save_dir: saveDir,
           obsidian_vault: vaultPath,
+        },
+        preferences: {
+          browser_headless: String(browserHeadless),
         },
       });
       setSaved(true);
@@ -100,6 +105,30 @@ export default function SettingsPanel() {
           ) : (
             <p className="text-sm text-muted-foreground">No providers connected.</p>
           )}
+        </Section>
+
+        {/* Browser */}
+        <Section title="Browser">
+          <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
+            <div>
+              <span className="text-sm">Headless Mode</span>
+              <p className="text-xs text-muted-foreground">
+                Run browser invisibly in the background
+              </p>
+            </div>
+            <button
+              onClick={() => setBrowserHeadless(!browserHeadless)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
+                browserHeadless ? "bg-primary" : "bg-secondary"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${
+                  browserHeadless ? "translate-x-4 ml-0.5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
         </Section>
 
         {/* Hotkey */}

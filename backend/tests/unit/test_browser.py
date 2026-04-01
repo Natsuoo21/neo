@@ -224,6 +224,105 @@ class TestBrowserController:
             page.screenshot.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_monitor_page_changed(self):
+        """monitor_page detects content change."""
+        call_count = 0
+
+        async def _dynamic_inner_text():
+            nonlocal call_count
+            call_count += 1
+            return "old value" if call_count <= 1 else "new value"
+
+        page = _make_mock_page(inner_text="old value")
+        element = AsyncMock()
+        element.inner_text = _dynamic_inner_text
+        page.query_selector = AsyncMock(return_value=element)
+        page.reload = AsyncMock()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            with patch("neo.tools.browser.asyncio.sleep", new_callable=AsyncMock):
+                controller = BrowserController()
+                await controller.start()
+                result = await controller.monitor_page(
+                    "https://example.com",
+                    selector="#price",
+                    condition="changed",
+                    check_interval_s=10,
+                    max_checks=5,
+                )
+                await controller.stop()
+
+        assert result["triggered"] is True
+        assert result["final_value"] == "new value"
+        assert result["checks_performed"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_monitor_page_contains(self):
+        """monitor_page detects when element contains a value."""
+        call_count = 0
+
+        async def _dynamic_inner_text():
+            nonlocal call_count
+            call_count += 1
+            return "Loading..." if call_count <= 1 else "In Stock - Buy Now"
+
+        page = _make_mock_page(inner_text="Loading...")
+        element = AsyncMock()
+        element.inner_text = _dynamic_inner_text
+        page.query_selector = AsyncMock(return_value=element)
+        page.reload = AsyncMock()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            with patch("neo.tools.browser.asyncio.sleep", new_callable=AsyncMock):
+                controller = BrowserController()
+                await controller.start()
+                result = await controller.monitor_page(
+                    "https://store.com",
+                    selector="#availability",
+                    condition="contains",
+                    reference_value="In Stock",
+                    check_interval_s=10,
+                    max_checks=5,
+                )
+                await controller.stop()
+
+        assert result["triggered"] is True
+
+    @pytest.mark.asyncio
+    async def test_monitor_page_timeout(self):
+        """monitor_page returns triggered=False when max_checks reached."""
+        page = _make_mock_page(inner_text="same value")
+        page.reload = AsyncMock()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            with patch("neo.tools.browser.asyncio.sleep", new_callable=AsyncMock):
+                controller = BrowserController()
+                await controller.start()
+                result = await controller.monitor_page(
+                    "https://example.com",
+                    selector="#status",
+                    condition="changed",
+                    check_interval_s=10,
+                    max_checks=3,
+                )
+                await controller.stop()
+
+        assert result["triggered"] is False
+        assert result["checks_performed"] == 3
+
+    @pytest.mark.asyncio
     async def test_start_stop_idempotent(self):
         pw = _make_mock_playwright()
 

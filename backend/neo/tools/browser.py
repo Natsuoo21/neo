@@ -172,6 +172,86 @@ class BrowserController:
         finally:
             await page.close()
 
+    async def monitor_page(
+        self,
+        url: str,
+        selector: str,
+        condition: str = "changed",
+        reference_value: str = "",
+        check_interval_s: int = 30,
+        max_checks: int = 60,
+    ) -> dict[str, Any]:
+        """Monitor a page element for a condition change.
+
+        Args:
+            url: URL to monitor.
+            selector: CSS selector for the element to watch.
+            condition: One of 'changed', 'contains', 'not_contains',
+                       'appeared', 'disappeared'.
+            reference_value: Value to compare against (for contains/not_contains).
+            check_interval_s: Seconds between checks (min 10).
+            max_checks: Maximum number of checks before giving up.
+
+        Returns:
+            Dict with keys: triggered (bool), final_value (str),
+            checks_performed (int), elapsed_s (float).
+        """
+        await self._ensure_started()
+        check_interval_s = max(10, check_interval_s)
+
+        page = await self._context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+
+            # Capture initial state
+            initial_value = await self._get_element_text(page, selector)
+
+            for i in range(max_checks):
+                await asyncio.sleep(check_interval_s)
+                await page.reload(wait_until="domcontentloaded")
+                current_value = await self._get_element_text(page, selector)
+
+                triggered = False
+                if condition == "changed":
+                    triggered = current_value != initial_value
+                elif condition == "contains":
+                    triggered = reference_value.lower() in current_value.lower()
+                elif condition == "not_contains":
+                    triggered = reference_value.lower() not in current_value.lower()
+                elif condition == "appeared":
+                    triggered = bool(current_value) and not bool(initial_value)
+                elif condition == "disappeared":
+                    triggered = not bool(current_value) and bool(initial_value)
+
+                if triggered:
+                    return {
+                        "triggered": True,
+                        "final_value": current_value,
+                        "initial_value": initial_value,
+                        "checks_performed": i + 1,
+                        "elapsed_s": (i + 1) * check_interval_s,
+                    }
+
+            return {
+                "triggered": False,
+                "final_value": current_value,
+                "initial_value": initial_value,
+                "checks_performed": max_checks,
+                "elapsed_s": max_checks * check_interval_s,
+            }
+        finally:
+            await page.close()
+
+    async def _get_element_text(self, page: Any, selector: str) -> str:
+        """Get text content of an element, returning empty string if not found."""
+        try:
+            element = await page.query_selector(selector)
+            if element is None:
+                return ""
+            return (await element.inner_text()).strip()
+        except Exception:
+            return ""
+
     async def _detect_bot_challenge(self, page: Any) -> bool:
         """Detect if the page is showing a bot challenge."""
         try:
