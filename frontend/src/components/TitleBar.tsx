@@ -31,11 +31,11 @@ export default function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="flex items-center justify-between h-10 bg-card border-b border-border px-4 select-none shrink-0"
+      className="flex items-center justify-between h-9 bg-gradient-to-b from-card to-background border-b border-border/60 px-4 select-none shrink-0"
     >
       <div data-tauri-drag-region className="flex items-center gap-2 flex-1">
-        <span className="text-primary font-bold text-sm">Neo</span>
-        <span className="text-muted-foreground text-xs">Personal Intelligence Agent</span>
+        <span className="text-primary font-semibold text-[13px] tracking-tight">Neo</span>
+        <span className="text-muted-foreground/60 text-[11px] font-medium tracking-wide">Personal Intelligence Agent</span>
       </div>
 
       <div className="flex items-center">
@@ -65,7 +65,7 @@ function WindowButton({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center w-10 h-10 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors",
+        "inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:scale-95 transition-interaction",
         className,
       )}
       {...props}

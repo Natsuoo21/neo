@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Send } from "lucide-react";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
 import MessageBubble from "./MessageBubble";
@@ -107,32 +107,37 @@ export default function ChatView() {
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            <div className="text-center space-y-2">
-              <p className="text-lg font-medium">Start a conversation</p>
-              <p className="text-sm">Ask Neo to create files, research topics, or automate tasks.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-            {loading && (
-              <div className="flex gap-3 py-3 justify-start">
-                <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-3">
-                  <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                </div>
+        <div className="max-w-3xl mx-auto">
+          {messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <div className="text-center space-y-3 max-w-sm">
+                <div className="text-4xl font-bold text-primary/20 tracking-tighter select-none">Neo</div>
+                <p className="text-[15px] font-medium text-foreground/80">Start a conversation</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">Ask Neo to create files, research topics, or automate tasks.</p>
               </div>
-            )}
-            <div ref={messagesEndRef} />
-          </>
-        )}
+            </div>
+          ) : (
+            <>
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+              {loading && (
+                <div className="flex gap-3 py-3 justify-start animate-fade-in-up">
+                  <div className="bg-card border border-border/60 rounded-2xl rounded-bl-sm px-4 py-3 shadow-card flex gap-1.5 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border p-4">
+      <div className="border-t border-border/60 p-4 bg-card/30">
         <div className="flex items-end gap-2 max-w-3xl mx-auto">
           <VoiceButton />
           <textarea
@@ -142,12 +147,12 @@ export default function ChatView() {
             onKeyDown={handleKeyDown}
             placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
             rows={1}
-            className="flex-1 bg-card border border-border rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-primary/50 transition-colors placeholder:text-muted-foreground"
+            className="flex-1 bg-card border border-border rounded-lg px-4 py-3 text-[13px] resize-none outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 focus:bg-card/80 transition-all placeholder:text-muted-foreground"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="shrink-0 w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="shrink-0 w-10 h-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-interaction"
           >
             <Send className="w-4 h-4" />
           </button>

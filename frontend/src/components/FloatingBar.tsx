@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
@@ -188,10 +187,10 @@ export default function FloatingBar() {
 
   return (
     <div className="h-screen flex items-center justify-center p-2">
-      <div className="w-full max-w-[580px] bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[580px] bg-card/95 backdrop-blur-2xl border border-border/50 rounded-[14px] shadow-float overflow-hidden">
         {/* Input row */}
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className="text-primary font-bold text-sm tracking-wide select-none">
+          <div className="text-primary font-semibold text-[13px] tracking-tight select-none">
             Neo
           </div>
           <input
@@ -209,24 +208,28 @@ export default function FloatingBar() {
             }}
             placeholder="Type a command..."
             disabled={loading}
-            className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground text-sm"
+            className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/60 text-[15px]"
             autoComplete="off"
             spellCheck={false}
           />
           {loading && (
-            <Loader2 className="w-4 h-4 text-primary animate-spin" />
+            <div className="flex gap-1 items-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
           )}
         </div>
 
         {/* Autocomplete suggestions */}
         {showSuggestions && (
-          <div className="border-t border-border">
+          <div className="border-t border-border/50">
             {suggestions.map((suggestion, idx) => (
               <button
                 key={suggestion}
                 onClick={() => applySuggestion(suggestion)}
                 className={cn(
-                  "w-full text-left px-4 py-2 text-sm transition-colors",
+                  "w-full text-left px-4 py-2 text-[13px] transition-interaction",
                   idx === selectedSuggestion
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50",
@@ -243,11 +246,12 @@ export default function FloatingBar() {
           <div
             role="status"
             aria-live="polite"
-            className={`px-4 py-2 border-t border-border text-xs truncate ${
+            className={cn(
+              "px-4 py-2 border-t border-border/50 text-xs truncate font-mono",
               lastResult.status === "success"
                 ? "text-emerald-400"
-                : "text-destructive"
-            }`}
+                : "text-destructive",
+            )}
           >
             {lastResult.message}
           </div>

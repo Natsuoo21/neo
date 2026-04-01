@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import type { SettingsUpdateResult } from "@/types/rpc";
 
@@ -8,6 +9,9 @@ interface Props {
 }
 
 const STEPS = ["Welcome", "Profile", "Paths", "Done"] as const;
+
+const INPUT_CLASS =
+  "w-full bg-background border border-border rounded-md px-3 py-2.5 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground";
 
 export default function SetupWizard({ onComplete }: Props) {
   const [step, setStep] = useState(0);
@@ -57,15 +61,20 @@ export default function SetupWizard({ onComplete }: Props) {
           {STEPS.map((_, i) => (
             <div
               key={i}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i <= step ? "bg-primary" : "bg-secondary"
-              }`}
+              className={cn(
+                "h-2 rounded-full transition-all duration-300",
+                i === step
+                  ? "w-6 bg-primary"
+                  : i < step
+                    ? "w-2 bg-primary"
+                    : "w-2 bg-secondary",
+              )}
             />
           ))}
         </div>
 
         {/* Step content */}
-        <div className="bg-card border border-border rounded-2xl p-8 space-y-6">
+        <div className="bg-card border border-border/60 rounded-[18px] p-8 space-y-6 shadow-elevated">
           {step === 0 && <StepWelcome />}
           {step === 1 && (
             <StepProfile
@@ -87,7 +96,7 @@ export default function SetupWizard({ onComplete }: Props) {
 
           <button
             onClick={handleNext}
-            className="flex items-center justify-center gap-2 w-full bg-primary text-primary-foreground rounded-xl py-3 text-sm font-medium hover:bg-primary/90 transition-colors"
+            className="flex items-center justify-center gap-2 w-full bg-primary text-primary-foreground rounded-lg py-3 text-[13px] font-semibold hover:brightness-110 active:scale-[0.98] transition-interaction"
           >
             {step === STEPS.length - 1 ? (
               <>
@@ -108,8 +117,8 @@ export default function SetupWizard({ onComplete }: Props) {
 function StepWelcome() {
   return (
     <div className="text-center space-y-3">
-      <h1 className="text-2xl font-bold">Welcome to Neo</h1>
-      <p className="text-muted-foreground text-sm">
+      <h1 className="text-2xl font-bold tracking-tight">Welcome to Neo</h1>
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
         Your personal intelligence agent. Let's set up a few things to get started.
       </p>
     </div>
@@ -129,7 +138,7 @@ function StepProfile({
 }) {
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Who are you?</h2>
+      <h2 className="text-[15px] font-semibold tracking-tight">Who are you?</h2>
       <div>
         <label className="text-xs text-muted-foreground mb-1 block">Your Name</label>
         <input
@@ -137,7 +146,7 @@ function StepProfile({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g., Andre"
-          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground"
+          className={INPUT_CLASS}
         />
       </div>
       <div>
@@ -147,7 +156,7 @@ function StepProfile({
           value={role}
           onChange={(e) => setRole(e.target.value)}
           placeholder="e.g., Software Engineer"
-          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground"
+          className={INPUT_CLASS}
         />
       </div>
     </div>
@@ -167,7 +176,7 @@ function StepPaths({
 }) {
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">File Paths</h2>
+      <h2 className="text-[15px] font-semibold tracking-tight">File Paths</h2>
       <p className="text-xs text-muted-foreground">
         Where should Neo save files? You can change these later in Settings.
       </p>
@@ -178,7 +187,7 @@ function StepPaths({
           value={saveDir}
           onChange={(e) => setSaveDir(e.target.value)}
           placeholder="~/Documents/Neo"
-          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground"
+          className={INPUT_CLASS}
         />
       </div>
       <div>
@@ -190,7 +199,7 @@ function StepPaths({
           value={vaultPath}
           onChange={(e) => setVaultPath(e.target.value)}
           placeholder="~/Documents/ObsidianVault"
-          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground"
+          className={INPUT_CLASS}
         />
       </div>
     </div>
@@ -200,10 +209,10 @@ function StepPaths({
 function StepDone({ name }: { name: string }) {
   return (
     <div className="text-center space-y-3">
-      <h2 className="text-2xl font-bold">You're all set!</h2>
-      <p className="text-muted-foreground text-sm">
+      <h2 className="text-2xl font-bold tracking-tight">You're all set!</h2>
+      <p className="text-muted-foreground text-[13px] leading-relaxed">
         {name ? `Welcome, ${name}! ` : ""}Neo is ready. Press{" "}
-        <kbd className="px-1.5 py-0.5 bg-secondary rounded text-xs font-mono">
+        <kbd className="px-1.5 py-0.5 bg-secondary rounded-[var(--radius-sm)] text-xs font-mono">
           Ctrl+Shift+N
         </kbd>{" "}
         anywhere to open the command bar.

@@ -31,11 +31,11 @@ export default function VoiceButton() {
       onClick={toggleVoice}
       disabled={loading}
       className={cn(
-        "shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+        "shrink-0 w-10 h-10 rounded-lg flex items-center justify-center active:scale-95 transition-interaction",
         voiceActive
-          ? "bg-destructive text-destructive-foreground animate-pulse"
-          : "bg-card border border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-        loading && "opacity-50 cursor-not-allowed",
+          ? "bg-destructive text-destructive-foreground ring-2 ring-destructive/30 ring-offset-2 ring-offset-background animate-pulse"
+          : "bg-card border border-border text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        loading && "opacity-40 cursor-not-allowed",
       )}
       title={voiceActive ? "Stop recording" : "Start voice input"}
     >

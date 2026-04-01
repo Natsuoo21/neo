@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Settings, Save, Eye, EyeOff } from "lucide-react";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
+import PageHeader from "./ui/PageHeader";
+import Toggle from "./ui/Toggle";
 import type {
   SettingsGetResult,
   SettingsUpdateResult,
@@ -68,12 +70,7 @@ export default function SettingsPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">Settings</h2>
-        </div>
-      </div>
+      <PageHeader icon={Settings} title="Settings" />
 
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 max-w-2xl">
         {/* Profile */}
@@ -98,15 +95,15 @@ export default function SettingsPanel() {
               {providers.map((p) => (
                 <div
                   key={p.tier}
-                  className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2"
+                  className="flex items-center justify-between bg-card border border-border/60 rounded-[10px] px-3 py-2.5 shadow-card"
                 >
-                  <span className="text-sm">{p.tier}</span>
+                  <span className="text-[13px] font-mono">{p.tier}</span>
                   <span className="text-xs text-emerald-400">Connected ({p.name})</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No providers connected.</p>
+            <p className="text-[13px] text-muted-foreground">No providers connected.</p>
           )}
         </Section>
 
@@ -118,7 +115,7 @@ export default function SettingsPanel() {
           <select
             value={defaultProvider}
             onChange={(e) => setDefaultProvider(e.target.value)}
-            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 transition-colors"
+            className="w-full bg-card border border-border rounded-md px-3 py-2 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all appearance-none"
           >
             <option value="">Automatic (recommended)</option>
             {providers.map((p) => (
@@ -131,33 +128,22 @@ export default function SettingsPanel() {
 
         {/* Browser */}
         <Section title="Browser">
-          <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
+          <div className="flex items-center justify-between bg-card border border-border/60 rounded-[10px] px-3 py-2.5 shadow-card">
             <div>
-              <span className="text-sm">Headless Mode</span>
+              <span className="text-[13px]">Headless Mode</span>
               <p className="text-xs text-muted-foreground">
                 Run browser invisibly in the background
               </p>
             </div>
-            <button
-              onClick={() => setBrowserHeadless(!browserHeadless)}
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-                browserHeadless ? "bg-primary" : "bg-secondary"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${
-                  browserHeadless ? "translate-x-4 ml-0.5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
+            <Toggle enabled={browserHeadless} onToggle={() => setBrowserHeadless(!browserHeadless)} />
           </div>
         </Section>
 
         {/* Hotkey */}
         <Section title="Hotkey">
-          <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
-            <span className="text-sm">Toggle Floating Bar</span>
-            <kbd className="px-2 py-0.5 bg-secondary rounded text-xs text-muted-foreground font-mono">
+          <div className="flex items-center justify-between bg-card border border-border/60 rounded-[10px] px-3 py-2.5 shadow-card">
+            <span className="text-[13px]">Toggle Floating Bar</span>
+            <kbd className="px-2 py-0.5 bg-secondary rounded-[var(--radius-sm)] text-xs text-muted-foreground font-mono">
               Ctrl+Shift+N
             </kbd>
           </div>
@@ -172,7 +158,7 @@ export default function SettingsPanel() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 bg-primary text-primary-foreground rounded-md px-4 py-2.5 text-[13px] font-medium hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-interaction"
         >
           <Save className="w-4 h-4" />
           {saved ? "Saved!" : saving ? "Saving..." : "Save Settings"}
@@ -185,7 +171,7 @@ export default function SettingsPanel() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-sm font-medium mb-3">{title}</h3>
+      <h3 className="text-[13px] font-semibold tracking-tight mb-3">{title}</h3>
       <div className="space-y-3">{children}</div>
     </div>
   );
@@ -225,24 +211,12 @@ function AutoStartToggle() {
   };
 
   return (
-    <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
+    <div className="flex items-center justify-between bg-card border border-border/60 rounded-[10px] px-3 py-2.5 shadow-card">
       <div>
-        <span className="text-sm">Start with Windows</span>
+        <span className="text-[13px]">Start with Windows</span>
         <p className="text-xs text-muted-foreground">Launch Neo when you log in</p>
       </div>
-      <button
-        onClick={handleToggle}
-        disabled={loading}
-        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-          enabled ? "bg-primary" : "bg-secondary"
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${
-            enabled ? "translate-x-4 ml-0.5" : "translate-x-0.5"
-          }`}
-        />
-      </button>
+      <Toggle enabled={enabled} onToggle={handleToggle} disabled={loading} />
     </div>
   );
 }
@@ -271,13 +245,13 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 transition-colors placeholder:text-muted-foreground"
+          className="w-full bg-card border border-border rounded-md px-3 py-2 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground"
         />
         {type === "password" && (
           <button
             type="button"
             onClick={() => setShow(!show)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-interaction"
           >
             {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>

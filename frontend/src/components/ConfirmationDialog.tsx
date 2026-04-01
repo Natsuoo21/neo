@@ -12,7 +12,7 @@ export default function ConfirmationDialog() {
   const current = confirmations[0];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <ConfirmationCard
         key={current.id}
         confirmation={current}
@@ -52,32 +52,40 @@ function ConfirmationCard({
   }, [onResolve]);
 
   return (
-    <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full mx-4 shadow-xl">
+    <div className="bg-card border border-border/60 rounded-[14px] p-6 max-w-md w-full mx-4 shadow-float animate-fade-in-up">
       <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 bg-amber-500/10 rounded-full">
+        <div className="p-2 bg-amber-500/10 rounded-xl">
           <AlertTriangle className="w-5 h-5 text-amber-500" />
         </div>
-        <h3 className="font-semibold text-sm">Confirmation Required</h3>
+        <h3 className="font-semibold text-[13px] tracking-tight">Confirmation Required</h3>
       </div>
 
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="text-[13px] text-muted-foreground mb-6">
         {confirmation.action_description}
       </p>
 
+      {/* Progress bar */}
+      <div className="h-1 bg-secondary rounded-full mb-4 overflow-hidden">
+        <div
+          className="h-full bg-primary/40 rounded-full transition-all duration-1000 ease-linear"
+          style={{ width: `${(remaining / timeout) * 100}%` }}
+        />
+      </div>
+
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground font-mono">
           Auto-deny in {remaining}s
         </span>
         <div className="flex gap-2">
           <button
             onClick={() => onResolve(false)}
-            className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary transition-colors"
+            className="px-4 py-2 text-[13px] font-medium rounded-md border border-border hover:bg-secondary active:scale-[0.98] transition-interaction"
           >
             Deny
           </button>
           <button
             onClick={() => onResolve(true)}
-            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            className="px-4 py-2 text-[13px] font-medium rounded-md bg-primary text-primary-foreground hover:brightness-110 active:scale-[0.98] transition-interaction"
           >
             Approve
           </button>

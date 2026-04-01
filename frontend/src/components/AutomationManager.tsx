@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Timer,
-  Search,
   Plus,
   Trash2,
   PauseCircle,
@@ -14,6 +13,10 @@ import {
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
+import PageHeader from "./ui/PageHeader";
+import SearchInput from "./ui/SearchInput";
+import Toggle from "./ui/Toggle";
+import EmptyState from "./ui/EmptyState";
 import type {
   Automation,
   AutomationListResult,
@@ -30,6 +33,9 @@ const TRIGGER_LABELS: Record<string, string> = {
   startup: "On Startup",
   pattern: "Pattern",
 };
+
+const INPUT_CLASS =
+  "w-full bg-card border border-border rounded-md px-3 py-2 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground";
 
 export default function AutomationManager() {
   const automations = useNeoStore((s) => s.automations);
@@ -114,64 +120,46 @@ export default function AutomationManager() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Timer className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">Automations</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePauseAll}
-              className={cn(
-                "flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition-colors",
-                paused
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-secondary text-muted-foreground hover:bg-secondary/80",
-              )}
-            >
-              {paused ? (
-                <>
-                  <PlayCircle className="w-3.5 h-3.5" /> Resume All
-                </>
-              ) : (
-                <>
-                  <PauseCircle className="w-3.5 h-3.5" /> Pause All
-                </>
-              )}
-            </button>
-            <span className="text-xs text-muted-foreground">
-              {automations.filter((a) => a.is_enabled).length}/
-              {automations.length} active
-            </span>
-          </div>
+      <PageHeader icon={Timer} title="Automations" subtitle={`${automations.filter((a) => a.is_enabled).length}/${automations.length} active`}>
+        <button
+          onClick={handlePauseAll}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium active:scale-95 transition-interaction",
+            paused
+              ? "bg-destructive/10 text-destructive"
+              : "bg-secondary text-muted-foreground hover:bg-secondary/80",
+          )}
+        >
+          {paused ? (
+            <>
+              <PlayCircle className="w-3.5 h-3.5" /> Resume All
+            </>
+          ) : (
+            <>
+              <PauseCircle className="w-3.5 h-3.5" /> Pause All
+            </>
+          )}
+        </button>
+      </PageHeader>
+
+      <div className="px-6 py-3 border-b border-border/60 flex gap-2">
+        <div className="flex-1">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search automations..." />
         </div>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search automations..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-card border border-border rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary/50 transition-colors placeholder:text-muted-foreground"
-            />
-          </div>
-          <button
-            onClick={() => {
-              setShowForm(!showForm);
-              setEditingId(null);
-            }}
-            className="flex items-center gap-1 bg-primary/10 text-primary rounded-lg px-3 py-2 text-sm hover:bg-primary/20 transition-colors"
-          >
-            {showForm ? (
-              <X className="w-4 h-4" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            {showForm ? "Cancel" : "Create"}
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setShowForm(!showForm);
+            setEditingId(null);
+          }}
+          className="flex items-center gap-1 bg-primary/10 text-primary rounded-md px-3 py-2 text-[13px] font-medium hover:bg-primary/20 active:scale-[0.98] transition-interaction"
+        >
+          {showForm ? (
+            <X className="w-4 h-4" />
+          ) : (
+            <Plus className="w-4 h-4" />
+          )}
+          {showForm ? "Cancel" : "Create"}
+        </button>
       </div>
 
       {showForm && (
@@ -184,7 +172,7 @@ export default function AutomationManager() {
       )}
 
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
-        {filtered.map((auto) =>
+        {filtered.map((auto, i) =>
           editingId === auto.id ? (
             <EditForm
               key={auto.id}
@@ -205,13 +193,12 @@ export default function AutomationManager() {
               onDelete={handleDelete}
               onEdit={() => setEditingId(auto.id)}
               onRun={handleRun}
+              index={i}
             />
           ),
         )}
         {filtered.length === 0 && (
-          <p className="text-center text-muted-foreground text-sm py-8">
-            No automations found.
-          </p>
+          <EmptyState icon={Timer} title="No automations found" description="Create one to get started." />
         )}
       </div>
     </div>
@@ -224,12 +211,14 @@ function AutomationCard({
   onDelete,
   onEdit,
   onRun,
+  index,
 }: {
   automation: Automation;
   onToggle: (a: Automation) => void;
   onDelete: (a: Automation) => void;
   onEdit: () => void;
   onRun: (a: Automation) => void;
+  index: number;
 }) {
   const [running, setRunning] = useState(false);
 
@@ -257,13 +246,16 @@ function AutomationCard({
   };
 
   return (
-    <div className="flex items-start gap-4 bg-card border border-border rounded-xl p-4">
+    <div
+      className="flex items-start gap-4 bg-card border border-border/60 rounded-[10px] p-4 shadow-card animate-fade-in-up"
+      style={{ animationDelay: `${index * 30}ms` }}
+    >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-medium text-sm">{automation.name}</span>
+          <span className="font-medium text-[13px]">{automation.name}</span>
           <span
             className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded-full",
+              "text-[10px] px-1.5 py-0.5 rounded-[var(--radius-sm)]",
               automation.trigger_type === "schedule"
                 ? "bg-primary/10 text-primary"
                 : "bg-emerald-500/10 text-emerald-400",
@@ -274,7 +266,7 @@ function AutomationCard({
           {automation.last_status && (
             <span
               className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded-full",
+                "text-[10px] px-1.5 py-0.5 rounded-[var(--radius-sm)]",
                 automation.last_status === "success"
                   ? "bg-emerald-500/10 text-emerald-400"
                   : automation.last_status === "error"
@@ -286,12 +278,12 @@ function AutomationCard({
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mb-1">
+        <p className="text-xs text-muted-foreground mb-1 font-mono">
           {automation.command}
         </p>
         <div className="flex items-center gap-2">
           {triggerDetail && (
-            <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded text-muted-foreground">
+            <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded-[var(--radius-sm)] text-muted-foreground font-mono">
               {triggerDetail}
             </span>
           )}
@@ -307,7 +299,7 @@ function AutomationCard({
         <button
           onClick={handleRun}
           disabled={running}
-          className="p-1 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+          className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-accent/50 active:scale-90 transition-interaction disabled:opacity-40"
           title="Run now"
         >
           {running ? (
@@ -318,34 +310,19 @@ function AutomationCard({
         </button>
         <button
           onClick={onEdit}
-          className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 active:scale-90 transition-interaction"
           title="Edit"
         >
           <Pencil className="w-4 h-4" />
         </button>
         <button
           onClick={() => onDelete(automation)}
-          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+          className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-interaction"
           title="Delete"
         >
           <Trash2 className="w-4 h-4" />
         </button>
-        <button
-          onClick={() => onToggle(automation)}
-          className={cn(
-            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors",
-            automation.is_enabled ? "bg-primary" : "bg-secondary",
-          )}
-        >
-          <span
-            className={cn(
-              "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5",
-              automation.is_enabled
-                ? "translate-x-4 ml-0.5"
-                : "translate-x-0.5",
-            )}
-          />
-        </button>
+        <Toggle enabled={!!automation.is_enabled} onToggle={() => onToggle(automation)} />
       </div>
     </div>
   );
@@ -418,14 +395,14 @@ function EditForm({
   return (
     <form
       onSubmit={handleSave}
-      className="bg-card border border-primary/30 rounded-xl p-4 space-y-3"
+      className="bg-card border border-primary/30 rounded-[10px] p-4 space-y-3 shadow-card"
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-primary">Editing</span>
+        <span className="text-[10px] font-medium text-primary uppercase tracking-wider">Editing</span>
         <button
           type="button"
           onClick={onCancel}
-          className="p-1 text-muted-foreground hover:text-foreground"
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 active:scale-95 transition-interaction"
         >
           <X className="w-4 h-4" />
         </button>
@@ -435,11 +412,11 @@ function EditForm({
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Automation name"
-        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+        className={INPUT_CLASS}
         required
       />
       <div className="flex gap-2">
-        <div className="bg-secondary rounded-lg px-3 py-2 text-sm text-muted-foreground">
+        <div className="bg-secondary rounded-md px-3 py-2 text-[13px] text-muted-foreground">
           {TRIGGER_LABELS[automation.trigger_type] || automation.trigger_type}
         </div>
         {automation.trigger_type === "schedule" && (
@@ -448,7 +425,7 @@ function EditForm({
             value={schedule}
             onChange={(e) => setSchedule(e.target.value)}
             placeholder="Cron: */30 * * * *"
-            className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className={cn(INPUT_CLASS, "flex-1")}
           />
         )}
         {automation.trigger_type === "file_event" && (
@@ -457,7 +434,7 @@ function EditForm({
             value={path}
             onChange={(e) => setPath(e.target.value)}
             placeholder="Watch path"
-            className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className={cn(INPUT_CLASS, "flex-1")}
           />
         )}
       </div>
@@ -466,21 +443,21 @@ function EditForm({
         value={command}
         onChange={(e) => setCommand(e.target.value)}
         placeholder="Command to execute"
-        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+        className={INPUT_CLASS}
         required
       />
       <div className="flex gap-2">
         <button
           type="submit"
           disabled={submitting || !name || !command}
-          className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+          className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-[13px] font-medium hover:brightness-110 active:scale-[0.98] transition-interaction disabled:opacity-40"
         >
           {submitting ? "Saving..." : "Save Changes"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="bg-secondary text-muted-foreground rounded-lg px-4 py-2 text-sm hover:bg-secondary/80 transition-colors"
+          className="bg-secondary text-muted-foreground rounded-md px-4 py-2 text-[13px] hover:bg-secondary/80 active:scale-[0.98] transition-interaction"
         >
           Cancel
         </button>
@@ -533,14 +510,14 @@ function CreateForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-b border-border px-6 py-4 space-y-3 bg-card/50"
+      className="border-b border-border/60 px-6 py-4 space-y-3 bg-card/50"
     >
       <input
         type="text"
         placeholder="Automation name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+        className={INPUT_CLASS}
         required
       />
 
@@ -548,7 +525,7 @@ function CreateForm({
         <select
           value={triggerType}
           onChange={(e) => setTriggerType(e.target.value)}
-          className="bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none"
+          className="bg-card border border-border rounded-md px-3 py-2 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all"
         >
           <option value="schedule">Schedule</option>
           <option value="file_event">File Event</option>
@@ -561,7 +538,7 @@ function CreateForm({
             placeholder="Cron: */30 * * * *"
             value={schedule}
             onChange={(e) => setSchedule(e.target.value)}
-            className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className={cn(INPUT_CLASS, "flex-1")}
           />
         )}
 
@@ -571,7 +548,7 @@ function CreateForm({
             placeholder="Watch path: ~/Downloads"
             value={path}
             onChange={(e) => setPath(e.target.value)}
-            className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className={cn(INPUT_CLASS, "flex-1")}
           />
         )}
       </div>
@@ -581,14 +558,14 @@ function CreateForm({
         placeholder="Command to execute"
         value={command}
         onChange={(e) => setCommand(e.target.value)}
-        className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50"
+        className={INPUT_CLASS}
         required
       />
 
       <button
         type="submit"
         disabled={submitting || !name || !command}
-        className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+        className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-[13px] font-medium hover:brightness-110 active:scale-[0.98] transition-interaction disabled:opacity-40"
       >
         {submitting ? "Creating..." : "Create Automation"}
       </button>

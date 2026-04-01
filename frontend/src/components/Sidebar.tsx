@@ -70,7 +70,7 @@ export default function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex flex-col h-full bg-card border-r border-border shrink-0 transition-all duration-200",
+        "flex flex-col h-full bg-card/80 border-r border-border/60 shrink-0 transition-all duration-200",
         collapsed ? "w-14" : "w-52",
       )}
     >
@@ -82,8 +82,8 @@ export default function Sidebar() {
             setView("chat");
           }}
           className={cn(
-            "flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm",
-            "bg-primary/10 text-primary hover:bg-primary/20 transition-colors",
+            "flex items-center gap-2 w-full rounded-md px-3 py-2 text-[13px] font-medium",
+            "bg-primary/10 text-primary hover:bg-primary/20 active:scale-[0.98] transition-interaction",
             collapsed && "justify-center px-0",
           )}
         >
@@ -99,10 +99,10 @@ export default function Sidebar() {
             key={id}
             onClick={() => setView(id)}
             className={cn(
-              "flex items-center gap-3 w-full rounded-lg px-3 py-2 text-sm transition-colors",
+              "flex items-center gap-3 w-full rounded-md px-3 py-2 text-[13px] transition-interaction relative",
               view === id
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                ? "bg-accent text-foreground before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-full before:bg-primary"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
               collapsed && "justify-center px-0",
             )}
           >
@@ -114,7 +114,7 @@ export default function Sidebar() {
 
       {/* Conversation history */}
       {!collapsed && sessions.length > 0 && (
-        <div className="flex-1 overflow-y-auto border-t border-border">
+        <div className="flex-1 overflow-y-auto border-t border-border/60">
           <div className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             Recent Chats
           </div>
@@ -124,10 +124,10 @@ export default function Sidebar() {
                 key={s.session_id}
                 onClick={() => loadSession(s.session_id)}
                 className={cn(
-                  "w-full text-left rounded-lg px-2 py-1.5 text-xs transition-colors truncate",
+                  "w-full text-left rounded-md px-2 py-1.5 text-xs transition-interaction truncate",
                   sessionId === s.session_id
                     ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
                 )}
                 title={`${s.message_count} messages`}
               >
@@ -147,12 +147,12 @@ export default function Sidebar() {
       {(collapsed || sessions.length === 0) && <div className="flex-1" />}
 
       {/* Footer: collapse toggle + connection status */}
-      <div className="p-2 border-t border-border space-y-2">
+      <div className="p-2 border-t border-border/60 space-y-2">
         {!collapsed && (
           <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground">
             <span
               className={cn(
-                "w-1.5 h-1.5 rounded-full",
+                "w-2 h-2 rounded-full",
                 connected ? "bg-emerald-500" : "bg-destructive",
               )}
             />
@@ -161,7 +161,7 @@ export default function Sidebar() {
         )}
         <button
           onClick={toggleSidebar}
-          className="flex items-center justify-center w-full rounded-lg px-3 py-2 text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+          className="flex items-center justify-center w-full rounded-md px-3 py-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-95 transition-interaction"
         >
           {collapsed ? (
             <PanelLeft className="w-4 h-4" />

@@ -13,13 +13,13 @@ export default function MessageBubble({ message }: Props) {
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("flex gap-3 py-3", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-3 py-3 animate-fade-in-up", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-sm",
+          "max-w-[80%] rounded-2xl px-4 py-3 text-[13px]",
           isUser
-            ? "bg-primary text-primary-foreground rounded-br-sm"
-            : "bg-card border border-border rounded-bl-sm",
+            ? "bg-primary/90 text-primary-foreground rounded-br-sm shadow-card"
+            : "bg-card border border-border/60 rounded-bl-sm shadow-card",
         )}
       >
         {isUser ? (
@@ -60,17 +60,17 @@ export default function MessageBubble({ message }: Props) {
         {/* Metadata footer */}
         {!isUser && (message.model || message.tool || message.duration) && (
           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-            {message.model && <span>{message.model}</span>}
+            {message.model && <span className="font-mono">{message.model}</span>}
             {message.tool && (
               <>
                 <span className="opacity-30">|</span>
-                <span>{message.tool}</span>
+                <span className="font-mono">{message.tool}</span>
               </>
             )}
             {message.duration !== undefined && (
               <>
                 <span className="opacity-30">|</span>
-                <span>{message.duration}ms</span>
+                <span className="font-mono">{message.duration}ms</span>
               </>
             )}
           </div>
