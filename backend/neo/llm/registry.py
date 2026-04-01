@@ -67,3 +67,22 @@ def select_provider(registry: dict, tier: str) -> Any:
             return registry[fallback_tier]
 
     return None
+
+
+def get_fallback_providers(registry: dict, failed_tier: str) -> list[tuple[str, Any]]:
+    """Get remaining providers after a runtime failure, in fallback order.
+
+    Returns list of (tier, provider) tuples excluding the failed tier.
+    Wraps around the chain so every other provider gets a chance.
+    """
+    if failed_tier in FALLBACK_CHAIN:
+        start = FALLBACK_CHAIN.index(failed_tier) + 1
+    else:
+        start = 0
+    # Wrap around: try providers after failed_tier, then those before it
+    ordered = FALLBACK_CHAIN[start:] + FALLBACK_CHAIN[:start]
+    result = []
+    for tier in ordered:
+        if tier in registry and tier != failed_tier:
+            result.append((tier, registry[tier]))
+    return result
