@@ -6,6 +6,7 @@ scripts and the research pipeline.
 """
 
 import asyncio
+import concurrent.futures
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,6 +268,24 @@ class BrowserController:
 # ---------------------------------------------------------------------------
 
 
+def _run_async_in_thread(coro_fn):
+    """Run an async coroutine in a separate thread with its own event loop.
+
+    This avoids "Cannot run the event loop while another one is running"
+    when called from inside an already-running loop (e.g. _execute_sync).
+    """
+    def _thread_target():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro_fn())
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_thread_target)
+        return future.result(timeout=60)
+
+
 def browse_url(url: str, extract_selector: str = "body") -> str:
     """Navigate to a URL and extract text content.
 
@@ -280,11 +299,7 @@ def browse_url(url: str, extract_selector: str = "body") -> str:
         finally:
             await controller.stop()
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+    return _run_async_in_thread(_run)
 
 
 def take_screenshot(url: str, output_path: str = "") -> str:
@@ -300,11 +315,7 @@ def take_screenshot(url: str, output_path: str = "") -> str:
         finally:
             await controller.stop()
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+    return _run_async_in_thread(_run)
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,9 @@ _RETRY_DELAY = 1.0  # seconds, doubles each retry
 # HTTP status codes that are permanent failures — retrying won't help
 _NON_RETRYABLE_STATUSES = {400, 401, 403, 404}
 
+# Error strings in 429 responses that indicate permanent quota exhaustion
+_QUOTA_EXHAUSTED_MARKERS = ["insufficient_quota", "exceeded your current quota"]
+
 
 class OpenAIProvider(LLMProvider):
     """OpenAI GPT API provider via openai SDK."""
@@ -34,6 +37,14 @@ class OpenAIProvider(LLMProvider):
                 raise ValueError("OPENAI_API_KEY not set. Cannot use OpenAI provider.")
             self._client = AsyncOpenAI(api_key=self._api_key)
         return self._client
+
+    @staticmethod
+    def _is_quota_exhausted(error: APIError) -> bool:
+        """Check if the error indicates permanent quota exhaustion."""
+        if not isinstance(error, APIStatusError) or error.status_code != 429:
+            return False
+        err_str = str(error).lower()
+        return any(marker in err_str for marker in _QUOTA_EXHAUSTED_MARKERS)
 
     async def complete(self, system: str, user: str) -> str:
         """Send a text completion request to OpenAI."""
@@ -56,6 +67,9 @@ class OpenAIProvider(LLMProvider):
             except APIError as e:
                 if isinstance(e, APIStatusError) and e.status_code in _NON_RETRYABLE_STATUSES:
                     logger.error("OpenAI API permanent failure (HTTP %d): %s", e.status_code, e)
+                    raise
+                if self._is_quota_exhausted(e):
+                    logger.error("OpenAI quota exhausted — not retrying: %s", e)
                     raise
                 if attempt == _MAX_RETRIES:
                     logger.error("OpenAI API failed after %d attempts: %s", _MAX_RETRIES, e)
@@ -103,6 +117,9 @@ class OpenAIProvider(LLMProvider):
             except APIError as e:
                 if isinstance(e, APIStatusError) and e.status_code in _NON_RETRYABLE_STATUSES:
                     logger.error("OpenAI API permanent failure (HTTP %d): %s", e.status_code, e)
+                    raise
+                if self._is_quota_exhausted(e):
+                    logger.error("OpenAI quota exhausted — not retrying: %s", e)
                     raise
                 if attempt == _MAX_RETRIES:
                     logger.error("OpenAI API failed after %d attempts: %s", _MAX_RETRIES, e)

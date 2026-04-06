@@ -122,6 +122,43 @@ class GeminiProvider(LLMProvider):
             logger.debug("Could not track Gemini token usage from response")
 
     @staticmethod
+    def _json_schema_to_proto(schema: dict) -> genai.protos.Schema:
+        """Convert a JSON Schema dict to a Gemini protobuf Schema."""
+        type_map = {
+            "string": genai.protos.Type.STRING,
+            "number": genai.protos.Type.NUMBER,
+            "integer": genai.protos.Type.INTEGER,
+            "boolean": genai.protos.Type.BOOLEAN,
+            "array": genai.protos.Type.ARRAY,
+            "object": genai.protos.Type.OBJECT,
+        }
+
+        kwargs: dict[str, Any] = {}
+
+        json_type = schema.get("type", "object")
+        kwargs["type_"] = type_map.get(json_type, genai.protos.Type.OBJECT)
+
+        if "description" in schema:
+            kwargs["description"] = schema["description"]
+
+        if "properties" in schema:
+            kwargs["properties"] = {
+                k: GeminiProvider._json_schema_to_proto(v)
+                for k, v in schema["properties"].items()
+            }
+
+        if "items" in schema:
+            kwargs["items"] = GeminiProvider._json_schema_to_proto(schema["items"])
+
+        if "enum" in schema:
+            kwargs["enum"] = schema["enum"]
+
+        if "required" in schema:
+            kwargs["required"] = schema["required"]
+
+        return genai.protos.Schema(**kwargs)
+
+    @staticmethod
     def _convert_tools(tools: list[dict]) -> list | None:
         """Convert TOOL_DEFINITIONS format to Gemini FunctionDeclaration format."""
         if not tools:
@@ -130,13 +167,12 @@ class GeminiProvider(LLMProvider):
         declarations = []
         for tool in tools:
             schema = tool.get("input_schema", {})
-            # Remove 'required' from top-level if present — Gemini handles it via property-level
-            params = {k: v for k, v in schema.items() if k != "required"}
+            params = GeminiProvider._json_schema_to_proto(schema) if schema else None
             declarations.append(
                 genai.protos.FunctionDeclaration(
                     name=tool["name"],
                     description=tool.get("description", ""),
-                    parameters=params if params else None,
+                    parameters=params,
                 )
             )
         return [genai.protos.Tool(function_declarations=declarations)]
