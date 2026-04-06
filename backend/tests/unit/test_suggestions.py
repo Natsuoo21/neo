@@ -65,6 +65,21 @@ class TestSuggestionCRUD:
         result = accept_suggestion(memory_db, 999)
         assert result is None
 
+    def test_accept_already_accepted(self, memory_db: sqlite3.Connection):
+        """B8: Cannot accept an already-accepted suggestion."""
+        sid = create_suggestion(memory_db, "pattern", "msg")
+        accept_suggestion(memory_db, sid)
+        # Second accept should return None (idempotency guard)
+        result = accept_suggestion(memory_db, sid)
+        assert result is None
+
+    def test_accept_dismissed_fails(self, memory_db: sqlite3.Connection):
+        """Cannot accept a dismissed suggestion."""
+        sid = create_suggestion(memory_db, "pattern", "msg")
+        dismiss_suggestion(memory_db, sid)
+        result = accept_suggestion(memory_db, sid)
+        assert result is None
+
     def test_has_recent_suggestion_true(self, memory_db: sqlite3.Connection):
         create_suggestion(memory_db, "pattern", "msg")
         assert has_recent_suggestion(memory_db, hours=24) is True

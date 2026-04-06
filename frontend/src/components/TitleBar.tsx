@@ -46,9 +46,6 @@ export default function TitleBar() {
         >
           <Menu className="w-4 h-4" />
         </button>
-
-        <span className="text-primary font-semibold text-[13px] tracking-tight">Neo</span>
-        <span className="text-muted-foreground/60 text-[11px] font-medium tracking-wide hidden sm:inline">Personal Intelligence Agent</span>
       </div>
 
       <div className="flex items-center">

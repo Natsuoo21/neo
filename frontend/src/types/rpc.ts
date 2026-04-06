@@ -222,8 +222,6 @@ export interface Plugin {
   name: string;
   version: string;
   description: string;
-  command: string;
-  args: string[];
   tools: { name: string; description?: string }[];
   status: "running" | "stopped";
 }
@@ -256,6 +254,8 @@ export interface Suggestion {
   message: string;
   count: number;
   sample_input: string;
+  dismissed: number;
+  accepted: number;
   created_at: string;
 }
 
@@ -269,4 +269,19 @@ export interface VoiceStatusResult {
   stt_active: boolean;
   tts_enabled: boolean;
   wake_word_active: boolean;
+  stt: {
+    model_loaded: boolean;
+    model_name: string;
+    recording: boolean;
+    wake_word_active: boolean;
+    language: string;
+  };
+  tts: {
+    enabled: boolean;
+    speaking: boolean;
+    rate: number;
+    volume: number;
+    voice_id: string | null;
+    queue_size: number;
+  };
 }

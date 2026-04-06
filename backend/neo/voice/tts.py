@@ -83,20 +83,22 @@ class NeoTTS:
         self._start_worker()
 
     def stop(self) -> None:
-        """Stop speaking and clear the queue."""
-        # Clear queue
+        """Stop speaking and clear the queue.
+
+        Drains the queue and sends a sentinel to stop the worker.
+        Does NOT call engine.stop() from a foreign thread — pyttsx3
+        engines are single-threaded and must only be touched by
+        the worker thread.
+        """
+        # Drain pending items
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
             except queue.Empty:
                 break
 
-        if self._engine:
-            try:
-                self._engine.stop()
-            except (RuntimeError, OSError):
-                pass
-
+        # Send sentinel to stop worker gracefully
+        self._queue.put(None)
         self._speaking = False
 
     def set_rate(self, rate: int) -> None:
@@ -118,10 +120,16 @@ class NeoTTS:
             self._engine.setProperty("voice", voice_id)
 
     def get_available_voices(self) -> list[dict]:
-        """List available system voices."""
+        """List available system voices.
+
+        Only safe to call after the worker has initialized the engine.
+        If the engine hasn't been created yet, returns an empty list
+        rather than creating it on the wrong thread.
+        """
+        if self._engine is None:
+            return []
         try:
-            engine = self._ensure_engine()
-            voices = engine.getProperty("voices")
+            voices = self._engine.getProperty("voices")
             return [
                 {"id": v.id, "name": v.name, "languages": getattr(v, "languages", [])}
                 for v in voices

@@ -1,28 +1,17 @@
 import { useEffect } from "react";
-import {
-  MessageSquare,
-  Zap,
-  Timer,
-  ClipboardList,
-  Settings,
-  Puzzle,
-  PanelLeftClose,
-  PanelLeft,
-  Plus,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore, type ViewId } from "@/stores/neoStore";
 import type { ConversationListResult, ConversationLoadResult } from "@/types/rpc";
 import type { ChatMessage } from "@/stores/neoStore";
 
-const NAV_ITEMS: { id: ViewId; label: string; icon: typeof MessageSquare }[] = [
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "skills", label: "Skills", icon: Zap },
-  { id: "automations", label: "Automations", icon: Timer },
-  { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "actions", label: "Action Log", icon: ClipboardList },
-  { id: "settings", label: "Settings", icon: Settings },
+const NAV_ITEMS: { id: ViewId; label: string; icon: string }[] = [
+  { id: "chat", label: "Chat", icon: "chat" },
+  { id: "skills", label: "Skills", icon: "bolt" },
+  { id: "automations", label: "Automations", icon: "auto_mode" },
+  { id: "plugins", label: "Plugins", icon: "extension" },
+  { id: "actions", label: "Action Log", icon: "history_edu" },
+  { id: "settings", label: "Settings", icon: "settings" },
 ];
 
 export default function Sidebar() {
@@ -77,12 +66,20 @@ export default function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex flex-col h-full bg-card/80 border-r border-border/60 shrink-0 transition-all duration-200 select-none",
-        collapsed ? "w-14" : "w-60",
+        "flex flex-col h-full bg-transparent shrink-0 transition-all duration-300 ease-in-out select-none",
+        collapsed ? "w-14" : "w-full",
       )}
     >
+      {/* Branding Header */}
+      {!collapsed && (
+        <div className="mb-8 px-4 mt-6">
+          <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary-dim font-headline tracking-wider">
+            NEO
+          </h1>
+        </div>
+      )}
       {/* New Chat button */}
-      <div className="p-2.5">
+      <div className={cn("px-4", collapsed ? "px-2 mb-4" : "mb-8 w-full")}>
         <button
           onClick={() => {
             clearMessages();
@@ -90,66 +87,63 @@ export default function Sidebar() {
             closeMobile();
           }}
           className={cn(
-            "flex items-center gap-2.5 w-full rounded-lg px-3.5 py-2.5 text-sm font-medium",
-            "bg-primary text-primary-foreground hover:brightness-110 active:scale-[0.98] transition-interaction shadow-card",
-            collapsed && "justify-center px-0",
+            "w-full bg-gradient-to-r from-primary to-primary-dim text-on-primary-fixed py-4 px-6 rounded-full font-bold flex items-center justify-center gap-3 shadow-lg scale-95 active:scale-90 transition-transform duration-300",
+            collapsed && "px-0"
           )}
         >
-          <Plus className="w-4.5 h-4.5 shrink-0" />
+          <span className="material-symbols-outlined font-bold">add</span>
           {!collapsed && <span>New Chat</span>}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="px-2.5 space-y-0.5">
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-          <button
+      <nav className={cn("flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar", collapsed && "items-center px-1", !collapsed && "px-2")}>
+        {NAV_ITEMS.map(({ id, label, icon: IconName }) => (
+          <div
             key={id}
             onClick={() => { setView(id); closeMobile(); }}
             className={cn(
-              "flex items-center gap-3.5 w-full rounded-lg px-3.5 py-2.5 text-sm transition-interaction relative",
+              "flex items-center gap-3 px-4 py-3 rounded-full font-headline tracking-wider text-sm uppercase transition-all duration-300 cursor-pointer",
               view === id
-                ? "bg-accent text-foreground shadow-card before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-primary"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
-              collapsed && "justify-center px-0",
+                ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
+                : "text-slate-400 opacity-70 hover:bg-white/10 hover:opacity-100",
+              collapsed && "justify-center px-0 w-10 h-10"
             )}
           >
-            <Icon className="w-5 h-5 shrink-0" />
+            <span className="material-symbols-outlined">{IconName}</span>
             {!collapsed && <span>{label}</span>}
-          </button>
+          </div>
         ))}
+        {!collapsed && <div className="h-px w-10/12 mx-auto bg-white/5 my-4"></div>}
       </nav>
 
       {/* Conversation history */}
       {!collapsed && sessions.length > 0 && (
-        <div className="flex-1 overflow-y-auto mt-2 border-t border-border/60">
+        <div className="flex-1 overflow-y-auto px-4 space-y-4">
           {groupedSessions.map((group) => (
-            <div key={group.label}>
-              <div className="px-4 pt-3 pb-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+            <div key={group.label} className="space-y-2">
+              <h3 className="text-[10px] font-bold text-slate-500 tracking-[0.2em] uppercase">
                 {group.label}
-              </div>
-              <div className="px-2 space-y-0.5">
+              </h3>
+              <div className="space-y-1">
                 {group.sessions.map((s) => (
-                  <button
+                  <div
                     key={s.session_id}
                     onClick={() => loadSession(s.session_id)}
                     className={cn(
-                      "w-full text-left rounded-lg px-3 py-2 transition-interaction group",
+                      "p-3 rounded-2xl transition-colors cursor-pointer group",
                       sessionId === s.session_id
-                        ? "bg-accent text-foreground shadow-card"
-                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-[0.98]",
+                        ? "bg-white/10"
+                        : "bg-surface-container-low/40 hover:bg-white/5"
                     )}
-                    title={`${s.message_count} messages`}
                   >
-                    <span className="block text-xs truncate leading-snug">
+                    <p className="text-sm font-headline tracking-wide text-on-surface-variant group-hover:text-on-surface transition-colors line-clamp-1">
                       {s.preview || s.session_id.slice(0, 12) + "..."}
+                    </p>
+                    <span className="text-[10px] text-slate-500 font-mono mt-1 block">
+                      {formatSessionTime(s.last_message_at)}
                     </span>
-                    <span className="flex items-center gap-1.5 mt-0.5 text-[10px] opacity-50">
-                      <span>{formatSessionTime(s.last_message_at)}</span>
-                      <span>·</span>
-                      <span>{s.message_count} msgs</span>
-                    </span>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -161,28 +155,28 @@ export default function Sidebar() {
       {(collapsed || sessions.length === 0) && <div className="flex-1" />}
 
       {/* Footer: collapse toggle + connection status */}
-      <div className="p-2.5 border-t border-border/60 space-y-2">
+      <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between px-4 pb-2">
         {!collapsed && (
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-muted-foreground">
-            <span
-              className={cn(
-                "w-2 h-2 rounded-full shrink-0",
-                connected ? "bg-emerald-500" : "bg-destructive",
-              )}
-            />
-            <span>{connected ? "Connected" : "Offline"}</span>
-            <span className="ml-auto text-[10px] opacity-40 font-mono">v0.1</span>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <span className="material-symbols-outlined text-secondary">sensors</span>
+              <div className={cn(
+                "absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-background",
+                connected ? "bg-green-500" : "bg-error"
+               )}></div>
+            </div>
+            <span className="text-xs font-bold tracking-widest text-slate-400 uppercase">
+               {connected ? "Connected" : "Offline"}
+            </span>
           </div>
         )}
         <button
           onClick={toggleSidebar}
-          className="flex items-center justify-center w-full rounded-lg px-3 py-2 text-muted-foreground hover:bg-accent/60 hover:text-foreground active:scale-95 transition-interaction"
+          className="p-2 rounded-full hover:bg-white/5 text-slate-400 transition-colors"
         >
-          {collapsed ? (
-            <PanelLeft className="w-4.5 h-4.5" />
-          ) : (
-            <PanelLeftClose className="w-4.5 h-4.5" />
-          )}
+          <span className="material-symbols-outlined">
+             {collapsed ? "last_page" : "first_page"}
+          </span>
         </button>
       </div>
     </aside>

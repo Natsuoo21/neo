@@ -477,8 +477,13 @@ def dismiss_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> bool:
 
 
 def accept_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> dict | None:
-    """Accept a suggestion and return it."""
-    conn.execute("UPDATE suggestions SET accepted = 1 WHERE id = ?", (suggestion_id,))
+    """Accept a suggestion and return it. Only accepts non-dismissed suggestions."""
+    cursor = conn.execute(
+        "UPDATE suggestions SET accepted = 1 WHERE id = ? AND accepted = 0 AND dismissed = 0",
+        (suggestion_id,),
+    )
+    if cursor.rowcount == 0:
+        return None
     row = conn.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
@@ -491,9 +496,10 @@ def get_suggestion(conn: sqlite3.Connection, suggestion_id: int) -> dict | None:
 
 def has_recent_suggestion(conn: sqlite3.Connection, hours: int = 24) -> bool:
     """Check if a suggestion was created in the last N hours (throttling)."""
+    safe_hours = int(hours)  # S4: prevent SQL injection via string interpolation
     row = conn.execute(
         "SELECT COUNT(*) AS cnt FROM suggestions WHERE created_at >= datetime('now', ?)",
-        (f"-{hours} hours",),
+        (f"-{safe_hours} hours",),
     ).fetchone()
     return (row["cnt"] if row else 0) > 0
 

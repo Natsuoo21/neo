@@ -14,6 +14,9 @@ Lifecycle:
 import json
 import logging
 import os
+import re
+import select
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -23,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 # Default plugin directory
 _DEFAULT_PLUGIN_DIR = Path.home() / ".neo" / "plugins"
+
+# Allowed plugin commands (security: prevents arbitrary binary execution)
+_ALLOWED_COMMANDS = frozenset({
+    "python", "python3", "node", "deno", "bun", "npx",
+    "ruby", "perl", "java", "dotnet",
+})
+
+# Plugin name validation (alphanumeric + hyphens only)
+_PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 
 class PluginDescriptor:
@@ -39,12 +51,11 @@ class PluginDescriptor:
         self.tools: list[dict] = data.get("tools", [])
 
     def to_dict(self) -> dict:
+        """Public-facing representation — excludes command/args for security."""
         return {
             "name": self.name,
             "version": self.version,
             "description": self.description,
-            "command": self.command,
-            "args": self.args,
             "tools": self.tools,
         }
 
@@ -57,6 +68,7 @@ class PluginProcess:
         self.process: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._request_id = 0
+        self._stderr_thread: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
@@ -67,11 +79,22 @@ class PluginProcess:
         if self.running:
             return
 
-        env = {**os.environ, **self.descriptor.env}
+        # S2: Only allow PLUGIN_* prefixed env vars from descriptor
+        safe_env = {
+            k: v for k, v in self.descriptor.env.items()
+            if k.startswith("PLUGIN_")
+        }
+        env = {**os.environ, **safe_env}
         plugin_dir = str(self.descriptor.path.parent)
 
+        # S1: Resolve command to absolute path via allowlist
+        cmd = self.descriptor.command
+        resolved = shutil.which(cmd)
+        if resolved is None:
+            raise FileNotFoundError(f"Plugin command not found in PATH: {cmd!r}")
+
         self.process = subprocess.Popen(
-            [self.descriptor.command, *self.descriptor.args],
+            [resolved, *self.descriptor.args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -80,6 +103,12 @@ class PluginProcess:
             text=True,
             bufsize=1,
         )
+
+        # I3: Drain stderr in background to prevent 64KB pipe deadlock
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, daemon=True,
+        )
+        self._stderr_thread.start()
 
         # MCP initialize handshake
         response = self._send_request("initialize", {
@@ -137,8 +166,12 @@ class PluginProcess:
             return result["tools"]
         return self.descriptor.tools
 
-    def _send_request(self, method: str, params: dict) -> dict | None:
-        """Send a JSON-RPC request and read the response."""
+    def _send_request(self, method: str, params: dict, timeout: float = 30.0) -> dict | None:
+        """Send a JSON-RPC request and read the response.
+
+        Args:
+            timeout: Max seconds to wait for a response (prevents blocking forever).
+        """
         if not self.running or self.process is None:
             return None
 
@@ -155,6 +188,13 @@ class PluginProcess:
                 line = json.dumps(request) + "\n"
                 self.process.stdin.write(line)  # type: ignore[union-attr]
                 self.process.stdin.flush()  # type: ignore[union-attr]
+
+                # I2: Wait with timeout to prevent blocking forever
+                stdout_fd = self.process.stdout.fileno()  # type: ignore[union-attr]
+                ready, _, _ = select.select([stdout_fd], [], [], timeout)
+                if not ready:
+                    logger.warning("Plugin '%s' timed out after %.1fs", self.descriptor.name, timeout)
+                    return None
 
                 response_line = self.process.stdout.readline()  # type: ignore[union-attr]
                 if not response_line:
@@ -183,6 +223,18 @@ class PluginProcess:
                 self.process.stdin.flush()  # type: ignore[union-attr]
             except (OSError, BrokenPipeError):
                 pass
+
+    def _drain_stderr(self) -> None:
+        """Read and log stderr lines to prevent pipe buffer deadlock."""
+        if self.process is None or self.process.stderr is None:
+            return
+        try:
+            for line in self.process.stderr:
+                line = line.rstrip()
+                if line:
+                    logger.debug("Plugin '%s' stderr: %s", self.descriptor.name, line)
+        except (OSError, ValueError):
+            pass
 
 
 class MCPHost:
@@ -227,6 +279,20 @@ class MCPHost:
                 data = json.loads(descriptor_path.read_text())
                 if "name" not in data or "command" not in data:
                     logger.warning("Invalid descriptor at %s: missing name or command", descriptor_path)
+                    continue
+
+                # Validate plugin name (BP9: alphanumeric + hyphens)
+                if not _PLUGIN_NAME_RE.match(data["name"]):
+                    logger.warning("Invalid plugin name %r at %s", data["name"], descriptor_path)
+                    continue
+
+                # S1: Validate command against allowlist
+                base_cmd = Path(data["command"]).name
+                if base_cmd not in _ALLOWED_COMMANDS:
+                    logger.warning(
+                        "Plugin %r uses disallowed command %r (allowed: %s)",
+                        data["name"], data["command"], ", ".join(sorted(_ALLOWED_COMMANDS)),
+                    )
                     continue
 
                 desc = PluginDescriptor(descriptor_path, data)
@@ -317,7 +383,7 @@ class MCPHost:
                 for tool in proc.list_tools():
                     tool_name = tool.get("name", "")
                     if tool_name:
-                        tools.append(f"plugin_{name}_{tool_name}")
+                        tools.append(f"plugin::{name}::{tool_name}")
         return tools
 
     def shutdown(self) -> None:

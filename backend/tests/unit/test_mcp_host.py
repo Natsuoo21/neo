@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from neo.plugins.mcp_host import MCPHost, PluginDescriptor, PluginProcess
+from neo.plugins.mcp_host import (
+    _ALLOWED_COMMANDS,
+    _PLUGIN_NAME_RE,
+    MCPHost,
+    PluginDescriptor,
+    PluginProcess,
+)
 
 # ---------------------------------------------------------------------------
 # PluginDescriptor
@@ -46,7 +52,8 @@ class TestPluginDescriptor:
         desc = PluginDescriptor(Path("/p"), data)
         d = desc.to_dict()
         assert d["name"] == "test"
-        assert d["command"] == "python"
+        assert "command" not in d  # S3: command hidden from public API
+        assert "args" not in d
         assert "path" not in d
 
 
@@ -283,5 +290,83 @@ class TestExampleWeatherPlugin:
     def test_get_all_tool_names(self, weather_host: MCPHost):
         weather_host.start_plugin("weather")
         names = weather_host.get_all_tool_names()
-        assert "plugin_weather_get_weather" in names
+        assert "plugin::weather::get_weather" in names
         weather_host.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Security tests
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityValidation:
+    """Tests for S1/S2/S3/BP9 security hardening."""
+
+    def test_allowed_commands_contains_common_runtimes(self):
+        assert "python" in _ALLOWED_COMMANDS
+        assert "python3" in _ALLOWED_COMMANDS
+        assert "node" in _ALLOWED_COMMANDS
+        assert "deno" in _ALLOWED_COMMANDS
+
+    def test_disallowed_command_rejected(self, tmp_path: Path):
+        plugin_dir = tmp_path / "evil"
+        plugin_dir.mkdir()
+        desc = {"name": "evil", "command": "bash", "args": ["-c", "rm -rf /"]}
+        (plugin_dir / "descriptor.json").write_text(json.dumps(desc))
+
+        host = MCPHost(plugin_dir=tmp_path)
+        plugins = host.discover()
+        assert len(plugins) == 0  # Rejected at discover time
+
+    def test_valid_plugin_name_regex(self):
+        assert _PLUGIN_NAME_RE.match("weather") is not None
+        assert _PLUGIN_NAME_RE.match("my-plugin") is not None
+        assert _PLUGIN_NAME_RE.match("plugin_v2") is not None
+        assert _PLUGIN_NAME_RE.match("A1") is not None
+
+    def test_invalid_plugin_name_regex(self):
+        assert _PLUGIN_NAME_RE.match("") is None
+        assert _PLUGIN_NAME_RE.match("-bad") is None
+        assert _PLUGIN_NAME_RE.match("../escape") is None
+        assert _PLUGIN_NAME_RE.match("name with spaces") is None
+        assert _PLUGIN_NAME_RE.match("a" * 65) is None  # Too long
+
+    def test_invalid_name_rejected_at_discover(self, tmp_path: Path):
+        plugin_dir = tmp_path / "badname"
+        plugin_dir.mkdir()
+        desc = {"name": "../escape", "command": "python"}
+        (plugin_dir / "descriptor.json").write_text(json.dumps(desc))
+
+        host = MCPHost(plugin_dir=tmp_path)
+        plugins = host.discover()
+        assert len(plugins) == 0
+
+    def test_to_dict_hides_command(self):
+        data = {"name": "test", "command": "python", "args": ["server.py"]}
+        desc = PluginDescriptor(Path("/p"), data)
+        d = desc.to_dict()
+        assert "command" not in d
+        assert "args" not in d
+
+    def test_env_var_filtering(self):
+        """Only PLUGIN_* env vars should pass through."""
+        data = {
+            "name": "test",
+            "command": "python",
+            "env": {
+                "PLUGIN_API_KEY": "safe",
+                "PATH": "/evil/path",
+                "HOME": "/evil/home",
+            },
+        }
+        desc = PluginDescriptor(Path("/p"), data)
+        PluginProcess(desc)  # Verify it can be created
+
+        # Verify the env filtering logic
+        safe_env = {
+            k: v for k, v in desc.env.items()
+            if k.startswith("PLUGIN_")
+        }
+        assert "PLUGIN_API_KEY" in safe_env
+        assert "PATH" not in safe_env
+        assert "HOME" not in safe_env

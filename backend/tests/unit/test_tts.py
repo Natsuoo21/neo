@@ -126,7 +126,9 @@ class TestNeoTTSStop:
         tts._queue.put("text1")
         tts._queue.put("text2")
         tts.stop()
-        assert tts._queue.qsize() == 0
+        # Queue should have only the sentinel None (worker stop signal)
+        assert tts._queue.qsize() == 1
+        assert tts._queue.get_nowait() is None
         assert tts.speaking is False
 
     def test_stop_when_not_speaking(self):
@@ -140,8 +142,8 @@ class TestNeoTTSStop:
 
 
 class TestNeoTTSVoices:
-    @patch("neo.voice.tts._check_pyttsx3")
-    def test_get_available_voices(self, mock_check):
+    def test_get_available_voices_with_engine(self):
+        """When engine is initialized, returns voice list."""
         mock_voice = MagicMock()
         mock_voice.id = "voice1"
         mock_voice.name = "Test Voice"
@@ -149,20 +151,16 @@ class TestNeoTTSVoices:
 
         mock_engine = MagicMock()
         mock_engine.getProperty.return_value = [mock_voice]
-        mock_pyttsx3 = MagicMock()
-        mock_pyttsx3.init.return_value = mock_engine
-        mock_check.return_value = mock_pyttsx3
 
         tts = NeoTTS()
+        tts._engine = mock_engine  # Pre-set (as worker would)
         voices = tts.get_available_voices()
         assert len(voices) == 1
         assert voices[0]["id"] == "voice1"
         assert voices[0]["name"] == "Test Voice"
 
     def test_get_available_voices_no_engine(self):
-        """If pyttsx3 not installed, returns empty list."""
+        """Before worker starts, returns empty list (B6 fix)."""
         tts = NeoTTS()
-        # Patch _ensure_engine to raise
-        tts._ensure_engine = MagicMock(side_effect=ImportError("no pyttsx3"))
         voices = tts.get_available_voices()
         assert voices == []
