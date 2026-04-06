@@ -287,3 +287,123 @@ class TestNeoScheduler:
             scheduler.remove_automation(999)
         finally:
             scheduler.shutdown(wait=False)
+
+    def test_jobs_persist_across_restart(self, tmp_path):
+        """Jobs in SQLAlchemyJobStore survive scheduler restart."""
+        db_path = str(tmp_path / "test.db")
+        import sqlite3
+        from pathlib import Path
+
+        schema_path = Path(__file__).resolve().parent.parent.parent / "neo" / "memory" / "schema.sql"
+        conn = sqlite3.connect(db_path)
+        for stmt in schema_path.read_text().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+        conn.execute(
+            "INSERT INTO automations (name, trigger_type, trigger_config, command, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ("persist test", "schedule", json.dumps({"cron": "0 9 * * *"}), "generate report"),
+        )
+        conn.commit()
+        conn.close()
+
+        # First scheduler — start, add job, shutdown
+        scheduler1 = self._create_scheduler(db_path)
+        scheduler1.start()
+        jobs1 = scheduler1._scheduler.get_jobs()
+        assert len(jobs1) == 1
+        assert jobs1[0].name == "persist test"
+        scheduler1.shutdown(wait=False)
+
+        # Second scheduler — same DB, should recover the job
+        scheduler2 = self._create_scheduler(db_path)
+        scheduler2.start()
+        try:
+            jobs2 = scheduler2._scheduler.get_jobs()
+            assert len(jobs2) == 1
+            assert jobs2[0].name == "persist test"
+        finally:
+            scheduler2.shutdown(wait=False)
+
+    def test_sync_removes_orphaned_jobs(self, tmp_path):
+        """Jobs for deleted/disabled automations are removed on sync."""
+        db_path = str(tmp_path / "test.db")
+        import sqlite3
+        from pathlib import Path
+
+        schema_path = Path(__file__).resolve().parent.parent.parent / "neo" / "memory" / "schema.sql"
+        conn = sqlite3.connect(db_path)
+        for stmt in schema_path.read_text().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+        conn.execute(
+            "INSERT INTO automations (name, trigger_type, trigger_config, command, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ("will be deleted", "schedule", json.dumps({"cron": "0 9 * * *"}), "do stuff"),
+        )
+        conn.commit()
+        auto_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.close()
+
+        # First run — job registered
+        scheduler1 = self._create_scheduler(db_path)
+        scheduler1.start()
+        assert len(scheduler1._scheduler.get_jobs()) == 1
+        scheduler1.shutdown(wait=False)
+
+        # Delete the automation from DB while scheduler is down
+        conn = sqlite3.connect(db_path)
+        conn.execute("DELETE FROM automations WHERE id = ?", (auto_id,))
+        conn.commit()
+        conn.close()
+
+        # Second run — orphaned job should be removed by sync
+        scheduler2 = self._create_scheduler(db_path)
+        scheduler2.start()
+        try:
+            assert len(scheduler2._scheduler.get_jobs()) == 0
+        finally:
+            scheduler2.shutdown(wait=False)
+
+    def test_sync_adds_new_automations(self, tmp_path):
+        """Automations added while scheduler was down get synced on restart."""
+        db_path = str(tmp_path / "test.db")
+        import sqlite3
+        from pathlib import Path
+
+        schema_path = Path(__file__).resolve().parent.parent.parent / "neo" / "memory" / "schema.sql"
+        conn = sqlite3.connect(db_path)
+        for stmt in schema_path.read_text().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+        conn.commit()
+        conn.close()
+
+        # First run — no automations
+        scheduler1 = self._create_scheduler(db_path)
+        scheduler1.start()
+        assert len(scheduler1._scheduler.get_jobs()) == 0
+        scheduler1.shutdown(wait=False)
+
+        # Add automation to DB while scheduler is down
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO automations (name, trigger_type, trigger_config, command, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ("new job", "schedule", json.dumps({"cron": "30 8 * * *"}), "new command"),
+        )
+        conn.commit()
+        conn.close()
+
+        # Second run — new automation should be synced
+        scheduler2 = self._create_scheduler(db_path)
+        scheduler2.start()
+        try:
+            jobs = scheduler2._scheduler.get_jobs()
+            assert len(jobs) == 1
+            assert jobs[0].name == "new job"
+        finally:
+            scheduler2.shutdown(wait=False)

@@ -1,8 +1,12 @@
-"""Automation scheduler — APScheduler with in-memory job store.
+"""Automation scheduler — APScheduler with SQLite-backed persistent job store.
 
 Parses natural-language schedule expressions into cron strings,
 manages APScheduler jobs, and executes automations through the
 orchestrator with full safety checks.
+
+Job state is persisted to the same neo.db via SQLAlchemyJobStore,
+so scheduled jobs survive restarts and misfired executions are
+automatically detected and run within the misfire_grace_time window.
 """
 
 import asyncio
@@ -12,6 +16,7 @@ import re
 import time
 from typing import Any
 
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -181,6 +186,27 @@ def _noop_broadcast(event_data: dict) -> None:
     """No-op broadcast for when server broadcast isn't available."""
 
 
+# Module-level reference to the active scheduler instance.
+# Used by _run_automation_job so APScheduler can store a picklable
+# function reference instead of a bound method.
+_active_scheduler: "NeoScheduler | None" = None
+
+
+def _run_automation_job(automation_id: int, command: str) -> None:
+    """Module-level job target for APScheduler persistence.
+
+    APScheduler's SQLAlchemyJobStore pickles job state.  A bound method
+    like ``self._execute_automation`` would pickle the entire NeoScheduler
+    instance (including non-picklable objects like broadcast callbacks).
+    This module-level function is stored by import path instead, and
+    delegates to the active scheduler instance at runtime.
+    """
+    if _active_scheduler is None:
+        logger.warning("No active scheduler — skipping automation %d", automation_id)
+        return
+    _active_scheduler._execute_automation(automation_id, command)
+
+
 class NeoScheduler:
     """Manages scheduled automations via APScheduler."""
 
@@ -193,33 +219,67 @@ class NeoScheduler:
         self._db_path = db_path
         self._registry = provider_registry
         self._broadcast = broadcast_fn or _noop_broadcast
+
+        jobstore = SQLAlchemyJobStore(url=f"sqlite:///{db_path}")
         self._scheduler = BackgroundScheduler(
+            jobstores={"default": jobstore},
             job_defaults={
                 "coalesce": True,
                 "max_instances": 1,
                 "misfire_grace_time": 3600,
-            }
+            },
         )
 
     def start(self) -> None:
-        """Load enabled schedule automations from DB and start the scheduler."""
+        """Start the scheduler and sync persistent job store with automations DB.
+
+        The SQLAlchemyJobStore already persists jobs across restarts.
+        This sync ensures consistency if automations were added, removed,
+        or modified while the scheduler was down.  APScheduler will
+        automatically fire any misfired jobs within misfire_grace_time.
+        """
+        global _active_scheduler
+        _active_scheduler = self
+        self._scheduler.start()
+        self._sync_jobs_with_db()
+        logger.info("Scheduler started with %d jobs", len(self._scheduler.get_jobs()))
+
+    def _sync_jobs_with_db(self) -> None:
+        """Sync APScheduler job store with the automations DB table.
+
+        - Adds jobs for new enabled automations not yet in the store.
+        - Removes orphaned jobs whose automations were deleted or disabled.
+        """
         with get_session(self._db_path) as conn:
             automations = get_automations_by_trigger(conn, "schedule")
 
+        db_job_ids: set[str] = set()
         for auto in automations:
             config = json.loads(auto.get("trigger_config", "{}") or "{}")
             cron_expr = config.get("cron", "")
-            if cron_expr:
+            if not cron_expr:
+                continue
+            job_id = f"automation_{auto['id']}"
+            db_job_ids.add(job_id)
+
+            existing = self._scheduler.get_job(job_id)
+            if not existing:
                 self.add_automation(auto["id"], auto["name"], cron_expr, auto["command"])
 
-        self._scheduler.start()
-        logger.info("Scheduler started with %d jobs", len(self._scheduler.get_jobs()))
+        # Remove orphaned jobs (automation deleted/disabled while server was down)
+        for job in self._scheduler.get_jobs():
+            if job.id not in db_job_ids:
+                self._scheduler.remove_job(job.id)
+                logger.info("Removed orphaned job %s", job.id)
 
     def shutdown(self, wait: bool = True) -> None:
         """Gracefully stop the scheduler."""
+        global _active_scheduler
         if self._scheduler.running:
             self._scheduler.shutdown(wait=wait)
             logger.info("Scheduler shut down")
+        if _active_scheduler is self:
+            _active_scheduler = None
 
     def add_automation(self, automation_id: int, name: str, cron_expr: str, command: str) -> None:
         """Register a scheduled job."""
@@ -237,11 +297,12 @@ class NeoScheduler:
             return
 
         self._scheduler.add_job(
-            self._execute_automation,
+            _run_automation_job,
             trigger=trigger,
             id=job_id,
             name=name,
             args=[automation_id, command],
+            replace_existing=True,
         )
         logger.info("Registered job %s: %s [%s]", job_id, name, cron_expr)
 
