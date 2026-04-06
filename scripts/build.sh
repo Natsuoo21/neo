@@ -48,7 +48,7 @@ case "$ARCH" in
     *) TRIPLE="$ARCH-unknown-linux-gnu" ;;
 esac
 
-SIDECAR_SRC="$BACKEND/dist/neo-server-x86_64-pc-windows-msvc"
+SIDECAR_SRC="$BACKEND/dist/neo-server-$TRIPLE"
 SIDECAR_DST="$BINARIES/neo-server-$TRIPLE"
 
 if [ -f "$SIDECAR_SRC" ]; then
