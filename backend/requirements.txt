@@ -29,6 +29,7 @@ openai-whisper>=20231117
 pyttsx3>=2.90
 sounddevice>=0.4.6
 numpy>=1.26.0
+webrtcvad>=2.0.10
 
 # MCP (Phase 4)
 mcp>=1.0.0
