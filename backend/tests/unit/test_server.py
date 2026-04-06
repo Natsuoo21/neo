@@ -391,3 +391,71 @@ def test_clamp_limit():
     assert _clamp_limit("bad") == 50
     assert _clamp_limit(None) == 50
     assert _clamp_limit(0) == 1
+
+
+# ---- Update check RPC -------------------------------------------------------
+
+def test_update_check_no_update(client, monkeypatch):
+    """neo.update.check returns available=False when up-to-date."""
+    from unittest.mock import MagicMock
+
+    mock_instance = MagicMock()
+    mock_instance.check.return_value = None
+    monkeypatch.setattr(srv, "UpdateChecker", lambda: mock_instance)
+
+    r = _rpc(client, "neo.update.check")
+    assert r.status_code == 200
+    data = r.json()["result"]
+    assert data["available"] is False
+
+
+def test_update_check_has_update(client, monkeypatch):
+    """neo.update.check returns update info when available."""
+    from unittest.mock import MagicMock
+
+    update_info = {
+        "tag": "v0.2.0",
+        "name": "Release 0.2.0",
+        "url": "https://github.com/Natsuoo21/neo/releases/tag/v0.2.0",
+        "published_at": "2026-04-01T12:00:00Z",
+        "body": "New features",
+    }
+
+    mock_instance = MagicMock()
+    mock_instance.check.return_value = update_info
+    monkeypatch.setattr(srv, "UpdateChecker", lambda: mock_instance)
+
+    r = _rpc(client, "neo.update.check")
+    assert r.status_code == 200
+    data = r.json()["result"]
+    assert data["available"] is True
+    assert data["tag"] == "v0.2.0"
+
+
+# ---- Suggestions generate RPC -----------------------------------------------
+
+def test_suggestions_generate(client, monkeypatch):
+    """neo.suggestions.generate returns created suggestions."""
+    monkeypatch.setattr(srv, "generate_suggestions", lambda db, broadcast_fn=None: [])
+
+    r = _rpc(client, "neo.suggestions.generate")
+    assert r.status_code == 200
+    data = r.json()["result"]
+    assert data["created"] == 0
+    assert data["suggestions"] == []
+
+
+def test_suggestions_generate_with_results(client, monkeypatch):
+    """neo.suggestions.generate returns created suggestions when patterns found."""
+    fake_suggestions = [
+        {"id": 1, "pattern": "create excel", "message": "You've done this 4 times"},
+    ]
+    monkeypatch.setattr(
+        srv, "generate_suggestions",
+        lambda db, broadcast_fn=None: fake_suggestions,
+    )
+
+    r = _rpc(client, "neo.suggestions.generate")
+    data = r.json()["result"]
+    assert data["created"] == 1
+    assert len(data["suggestions"]) == 1

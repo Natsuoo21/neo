@@ -17,6 +17,7 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ from neo.automations.safety import (
     resolve_confirmation,
     set_global_pause,
 )
-from neo.automations.suggestions import get_pending_suggestions
+from neo.automations.suggestions import generate_suggestions, get_pending_suggestions
 from neo.llm.registry import build_provider_registry, check_ollama, get_fallback_providers, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
@@ -58,6 +59,7 @@ from neo.orchestrator import process, set_mcp_host
 from neo.plugins.mcp_host import MCPHost
 from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
 from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
+from neo.updater import UpdateChecker
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,23 @@ _sse_subscribers: list[asyncio.Queue] = []
 
 # Max command length to prevent abuse
 _MAX_COMMAND_LENGTH = 10_000
+
+# Module-level update checker instance (populated during lifespan)
+_update_checker: UpdateChecker | None = None
+
+
+def _suggestion_job() -> None:
+    """Module-level target for APScheduler — generate suggestions."""
+    if _db_path:
+        generate_suggestions(_db_path, broadcast_fn=broadcast_sse_event)
+
+
+def _update_check_job() -> None:
+    """Module-level target for APScheduler — check for updates."""
+    if _update_checker:
+        info = _update_checker.check()
+        if info:
+            broadcast_sse_event({"type": "update_available", **info})
 
 # Allowed CORS origins (Tauri dev + production)
 _CORS_ORIGINS = [
@@ -215,9 +234,44 @@ async def lifespan(app: FastAPI):
     # Start scheduler if available
     try:
         from neo.automations.scheduler import NeoScheduler
-        _scheduler = NeoScheduler(_db_path, _registry)
+        _scheduler = NeoScheduler(_db_path, _registry, broadcast_fn=broadcast_sse_event)
         _scheduler.start()
         logger.info("Automation scheduler started")
+
+        # Background job: generate suggestions every 6 hours
+        try:
+            _scheduler._scheduler.add_job(
+                "neo.server:_suggestion_job", "interval", hours=6,
+                id="__neo_suggestions", replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            _scheduler._scheduler.add_job(
+                "neo.server:_suggestion_job", "date",
+                run_date=datetime.now() + timedelta(seconds=30),
+                id="__neo_suggestions_initial", replace_existing=True,
+            )
+            logger.info("Suggestion generation job registered (every 6h)")
+        except Exception:
+            logger.exception("Failed to register suggestion job")
+
+        # Background job: check for updates weekly
+        try:
+            _update_checker = UpdateChecker()
+
+            _scheduler._scheduler.add_job(
+                "neo.server:_update_check_job", "interval", hours=168,
+                id="__neo_update_check", replace_existing=True,
+                misfire_grace_time=86400,
+            )
+            _scheduler._scheduler.add_job(
+                "neo.server:_update_check_job", "date",
+                run_date=datetime.now() + timedelta(seconds=60),
+                id="__neo_update_check_initial", replace_existing=True,
+            )
+            logger.info("Update checker job registered (weekly)")
+        except Exception:
+            logger.exception("Failed to register update checker job")
+
     except (ImportError, OSError, RuntimeError):
         logger.exception("Failed to start scheduler")
 
@@ -847,6 +901,29 @@ async def _rpc_suggestions_accept(params: dict) -> dict:
     }
 
 
+async def _rpc_suggestions_generate(_params: dict) -> dict:
+    """Manually trigger suggestion generation."""
+    created = await asyncio.to_thread(
+        generate_suggestions, _db_path, broadcast_sse_event,
+    )
+    return {"created": len(created), "suggestions": created}
+
+
+# ---------------------------------------------------------------------------
+# Update RPC methods
+# ---------------------------------------------------------------------------
+
+
+async def _rpc_update_check(_params: dict) -> dict:
+    """Check for new releases on GitHub."""
+    checker = UpdateChecker()
+    info = await asyncio.to_thread(checker.check)
+    if info:
+        broadcast_sse_event({"type": "update_available", **info})
+        return {"available": True, **info}
+    return {"available": False}
+
+
 # ---------------------------------------------------------------------------
 # Plugin RPC methods
 # ---------------------------------------------------------------------------
@@ -938,8 +1015,26 @@ async def _rpc_voice_start(params: dict) -> dict:
             _stt.language = language
             _stt._model = None  # Force model reload
 
+    execute = params.get("execute", True)  # Auto-execute transcribed commands
+
     def _on_transcription(text: str) -> None:
         broadcast_sse_event({"type": "voice_transcription", "text": text})
+        if not execute or not text.strip():
+            return
+        # Execute the transcribed command through the orchestrator
+        try:
+            session_id = str(uuid.uuid4())
+            result = _execute_sync(text, session_id, _db_path, _registry)
+            broadcast_sse_event({
+                "type": "voice_result",
+                "text": text,
+                "result": result,
+            })
+            # Speak the result via TTS if available
+            if _tts and result.get("status") == "success" and result.get("message"):
+                _tts.speak(result["message"][:500])
+        except Exception:
+            logger.exception("Voice command execution failed")
 
     mode = params.get("mode", "record")  # "record" or "wake_word"
 
@@ -1027,6 +1122,8 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.suggestions.list": _rpc_suggestions_list,
     "neo.suggestions.dismiss": _rpc_suggestions_dismiss,
     "neo.suggestions.accept": _rpc_suggestions_accept,
+    "neo.suggestions.generate": _rpc_suggestions_generate,
+    "neo.update.check": _rpc_update_check,
     "neo.plugin.list": _rpc_plugin_list,
     "neo.plugin.install": _rpc_plugin_install,
     "neo.plugin.stop": _rpc_plugin_stop,
