@@ -105,6 +105,20 @@ export interface SkillsDeleteResult {
   name: string;
 }
 
+export interface SkillsFoldersResult {
+  folders: string[];
+}
+
+export interface SkillsAddFolderResult {
+  folders: string[];
+  synced: number;
+}
+
+export interface SkillsRemoveFolderResult {
+  folders: string[];
+  synced: number;
+}
+
 export interface ActionLogEntry {
   id: number;
   input_text: string;

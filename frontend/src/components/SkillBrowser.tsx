@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Zap, Plus, X, Trash2, Download, ChevronRight } from "lucide-react";
+import { Zap, Plus, X, Trash2, Download, FolderPlus, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
@@ -14,6 +14,9 @@ import type {
   SkillsCreateResult,
   SkillsImportResult,
   SkillsDeleteResult,
+  SkillsFoldersResult,
+  SkillsAddFolderResult,
+  SkillsRemoveFolderResult,
 } from "@/types/rpc";
 
 const INPUT_CLASS =
@@ -22,7 +25,7 @@ const INPUT_CLASS =
 const TEXTAREA_CLASS =
   "w-full bg-card border border-border rounded-md px-3 py-2 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground font-mono resize-y";
 
-type FormTab = "create" | "import";
+type FormTab = "create" | "import" | "folder";
 
 export default function SkillBrowser() {
   const skills = useNeoStore((s) => s.skills);
@@ -138,6 +141,24 @@ export default function SkillBrowser() {
             )}
             {showForm && formTab === "import" ? "Cancel" : "Import from GitHub"}
           </button>
+          <button
+            onClick={() => {
+              if (showForm && formTab === "folder") {
+                setShowForm(false);
+              } else {
+                setShowForm(true);
+                setFormTab("folder");
+              }
+            }}
+            className="flex items-center gap-1 bg-secondary text-muted-foreground rounded-md px-3 py-2 text-[13px] font-medium hover:bg-secondary/80 active:scale-[0.98] transition-interaction"
+          >
+            {showForm && formTab === "folder" ? (
+              <X className="w-4 h-4" />
+            ) : (
+              <FolderPlus className="w-4 h-4" />
+            )}
+            {showForm && formTab === "folder" ? "Cancel" : "Add Folder"}
+          </button>
         </div>
 
         {showForm && formTab === "create" && (
@@ -155,6 +176,12 @@ export default function SkillBrowser() {
               setShowForm(false);
               reload();
             }}
+          />
+        )}
+
+        {showForm && formTab === "folder" && (
+          <FolderManager
+            onChanged={() => reload()}
           />
         )}
 
@@ -407,6 +434,115 @@ function ImportSkillForm({ onImported }: { onImported: () => void }) {
         {submitting ? "Importing..." : "Import"}
       </button>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Folder Manager
+// ---------------------------------------------------------------------------
+
+function FolderManager({ onChanged }: { onChanged: () => void }) {
+  const [newFolder, setNewFolder] = useState("");
+  const [folders, setFolders] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    rpc<SkillsFoldersResult>("neo.skills.folders")
+      .then((res) => setFolders(res.folders))
+      .catch(console.error);
+  }, []);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolder) return;
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await rpc<SkillsAddFolderResult>("neo.skills.add_folder", {
+        folder: newFolder.trim(),
+      });
+      setFolders(res.folders);
+      setNewFolder("");
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add folder");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRemove = async (folder: string) => {
+    try {
+      const res = await rpc<SkillsRemoveFolderResult>("neo.skills.remove_folder", {
+        folder,
+      });
+      setFolders(res.folders);
+      onChanged();
+    } catch (err) {
+      console.error("Failed to remove folder:", err);
+    }
+  };
+
+  return (
+    <div className="border-b border-border/60 px-6 py-4 space-y-3 bg-card/50">
+      <form onSubmit={handleAdd} className="flex gap-2">
+        <div className="flex-1">
+          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1 block">
+            Skill Folder Path
+          </label>
+          <input
+            type="text"
+            placeholder="~/Documents/my-skills or /absolute/path/to/skills"
+            value={newFolder}
+            onChange={(e) => setNewFolder(e.target.value)}
+            className={INPUT_CLASS}
+            required
+          />
+        </div>
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={submitting || !newFolder}
+            className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-[13px] font-medium hover:brightness-110 active:scale-[0.98] transition-interaction disabled:opacity-40"
+          >
+            {submitting ? "Adding..." : "Add"}
+          </button>
+        </div>
+      </form>
+
+      <p className="text-[10px] text-muted-foreground">
+        Point to a folder containing .md skill files with YAML frontmatter. All valid skills will be loaded automatically.
+      </p>
+
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
+
+      {folders.length > 0 && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            Active Folders
+          </label>
+          {folders.map((folder) => (
+            <div
+              key={folder}
+              className="flex items-center justify-between bg-card border border-border/60 rounded-md px-3 py-2"
+            >
+              <span className="text-xs font-mono text-muted-foreground truncate">{folder}</span>
+              <button
+                onClick={() => handleRemove(folder)}
+                className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-90 transition-interaction ml-2 shrink-0"
+                title="Remove folder"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

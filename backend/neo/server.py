@@ -706,6 +706,112 @@ async def _rpc_skills_delete(params: dict) -> dict:
     return {"deleted": deleted, "name": name}
 
 
+async def _rpc_skills_add_folder(params: dict) -> dict:
+    """Add a local folder to the skill search path and resync.
+
+    The folder path is persisted in user profile ``tool_paths.skills_dirs``.
+    """
+    folder = params.get("folder", "").strip()
+    if not folder:
+        raise ValueError("Missing 'folder' parameter")
+
+    expanded = os.path.expanduser(folder)
+    if not os.path.isdir(expanded):
+        raise ValueError(f"Directory not found: {expanded}")
+
+    def _add_and_sync():
+        with get_session(_db_path) as conn:
+            profile = get_user_profile(conn)
+            tool_paths = _safe_json_loads(profile.get("tool_paths") if profile else None)
+
+            # Read existing dirs list
+            existing_raw = tool_paths.get("skills_dirs", "")
+            if isinstance(existing_raw, list):
+                existing = existing_raw
+            elif isinstance(existing_raw, str) and existing_raw.strip():
+                existing = [d.strip() for d in existing_raw.split(",") if d.strip()]
+            else:
+                existing = []
+
+            # Add if not already present
+            if expanded not in existing:
+                existing.append(expanded)
+
+            tool_paths["skills_dirs"] = existing
+
+            if profile:
+                upsert_user_profile(
+                    conn,
+                    name=profile["name"],
+                    role=profile.get("role", ""),
+                    preferences=_safe_json_loads(profile.get("preferences")),
+                    tool_paths=tool_paths,
+                )
+
+            count = sync_skills_to_db(conn)
+            return existing, count
+
+    dirs, count = await asyncio.to_thread(_add_and_sync)
+    return {"folders": dirs, "synced": count}
+
+
+async def _rpc_skills_remove_folder(params: dict) -> dict:
+    """Remove a local folder from the skill search path and resync."""
+    folder = params.get("folder", "").strip()
+    if not folder:
+        raise ValueError("Missing 'folder' parameter")
+
+    expanded = os.path.expanduser(folder)
+
+    def _remove_and_sync():
+        with get_session(_db_path) as conn:
+            profile = get_user_profile(conn)
+            tool_paths = _safe_json_loads(profile.get("tool_paths") if profile else None)
+
+            existing_raw = tool_paths.get("skills_dirs", "")
+            if isinstance(existing_raw, list):
+                existing = existing_raw
+            elif isinstance(existing_raw, str) and existing_raw.strip():
+                existing = [d.strip() for d in existing_raw.split(",") if d.strip()]
+            else:
+                existing = []
+
+            existing = [d for d in existing if d != expanded and d != folder]
+            tool_paths["skills_dirs"] = existing
+
+            if profile:
+                upsert_user_profile(
+                    conn,
+                    name=profile["name"],
+                    role=profile.get("role", ""),
+                    preferences=_safe_json_loads(profile.get("preferences")),
+                    tool_paths=tool_paths,
+                )
+
+            count = sync_skills_to_db(conn)
+            return existing, count
+
+    dirs, count = await asyncio.to_thread(_remove_and_sync)
+    return {"folders": dirs, "synced": count}
+
+
+async def _rpc_skills_folders(_params: dict) -> dict:
+    """List currently configured extra skill folders."""
+    def _query():
+        with get_session(_db_path) as conn:
+            profile = get_user_profile(conn)
+            tool_paths = _safe_json_loads(profile.get("tool_paths") if profile else None)
+            raw = tool_paths.get("skills_dirs", "")
+            if isinstance(raw, list):
+                return raw
+            if isinstance(raw, str) and raw.strip():
+                return [d.strip() for d in raw.split(",") if d.strip()]
+            return []
+
+    folders = await asyncio.to_thread(_query)
+    return {"folders": folders}
+
+
 async def _rpc_actions_recent(params: dict) -> dict:
     """Get recent action log entries."""
     limit = _clamp_limit(params.get("limit", 50))
@@ -1229,6 +1335,9 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.skills.create": _rpc_skills_create,
     "neo.skills.import": _rpc_skills_import,
     "neo.skills.delete": _rpc_skills_delete,
+    "neo.skills.add_folder": _rpc_skills_add_folder,
+    "neo.skills.remove_folder": _rpc_skills_remove_folder,
+    "neo.skills.folders": _rpc_skills_folders,
     "neo.actions.recent": _rpc_actions_recent,
     "neo.stats": _rpc_stats,
     "neo.patterns": _rpc_patterns,

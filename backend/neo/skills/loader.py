@@ -256,15 +256,25 @@ def _parse_simple_yaml(raw: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def load_all_skills() -> list[dict]:
-    """Load all skill files from public/, user/, and community/ directories.
+def load_all_skills(extra_dirs: list[str] | None = None) -> list[dict]:
+    """Load all skill files from built-in + extra directories.
+
+    Scans: public/, user/, community/, plus any extra_dirs provided
+    (e.g. user-configured local folders).
 
     Returns:
         List of parsed skill dicts.
     """
     skills = []
+    seen_names: set[str] = set()
 
-    for skills_dir in [_SKILLS_DIR, _USER_SKILLS_DIR, _COMMUNITY_SKILLS_DIR]:
+    dirs = [_SKILLS_DIR, _USER_SKILLS_DIR, _COMMUNITY_SKILLS_DIR]
+    for extra in extra_dirs or []:
+        expanded = os.path.expanduser(extra.strip())
+        if expanded and expanded not in dirs:
+            dirs.append(expanded)
+
+    for skills_dir in dirs:
         if not os.path.isdir(skills_dir):
             continue
         for filename in sorted(os.listdir(skills_dir)):
@@ -272,8 +282,9 @@ def load_all_skills() -> list[dict]:
                 continue
             file_path = os.path.join(skills_dir, filename)
             skill = parse_skill_file(file_path)
-            if skill:
+            if skill and skill["name"] not in seen_names:
                 skills.append(skill)
+                seen_names.add(skill["name"])
 
     return skills
 
@@ -290,13 +301,36 @@ def _detect_skill_type(file_path: str) -> str:
     return "user"
 
 
+def _get_extra_skill_dirs(conn: sqlite3.Connection) -> list[str]:
+    """Read extra skill directories from user profile tool_paths."""
+    from neo.memory.models import get_user_profile
+
+    profile = get_user_profile(conn)
+    if not profile:
+        return []
+    raw = profile.get("tool_paths", "{}")
+    try:
+        paths = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except (json.JSONDecodeError, TypeError):
+        return []
+    dirs_raw = paths.get("skills_dirs", "")
+    if isinstance(dirs_raw, list):
+        return dirs_raw
+    if isinstance(dirs_raw, str) and dirs_raw.strip():
+        return [d.strip() for d in dirs_raw.split(",") if d.strip()]
+    return []
+
+
 def sync_skills_to_db(conn: sqlite3.Connection) -> int:
     """Scan skill files and upsert them into the skills table.
+
+    Reads extra skill directories from user profile ``tool_paths.skills_dirs``.
 
     Returns:
         Number of skills synced.
     """
-    skills = load_all_skills()
+    extra_dirs = _get_extra_skill_dirs(conn)
+    skills = load_all_skills(extra_dirs=extra_dirs)
     count = 0
 
     for skill in skills:
