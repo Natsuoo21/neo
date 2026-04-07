@@ -276,6 +276,41 @@ TOOL_DEFINITIONS = [
             "required": ["to", "subject", "body"],
         },
     },
+    {
+        "name": "create_skill",
+        "description": (
+            "Create a new Neo skill that can be activated via slash command. "
+            "Skills are reusable instruction sets that guide your behaviour for specific task types."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "snake_case skill name (e.g., 'meeting_agenda')",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One-line description of what the skill does",
+                },
+                "instructions": {
+                    "type": "string",
+                    "description": "Markdown body with LLM instructions for this skill",
+                },
+                "task_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Keywords associated with this skill",
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tools this skill may use (e.g., create_document)",
+                },
+            },
+            "required": ["name", "description", "instructions"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -292,6 +327,7 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "list_emails": ("neo.tools.gmail", "list_emails"),
     "read_email": ("neo.tools.gmail", "read_email"),
     "send_email": ("neo.tools.gmail", "send_email"),
+    "create_skill": ("neo.skills.loader", "create_user_skill_from_tool"),
 }
 
 
@@ -362,6 +398,7 @@ def build_system_prompt(
     skill_content: str = "",
     project_id: int | None = None,
     routed_tier: str = "",
+    available_skills: list[dict] | None = None,
 ) -> str:
     """Assemble the system prompt from user profile + skill + project.
 
@@ -370,7 +407,8 @@ def build_system_prompt(
     2. User profile (name, role, preferences, tool paths)
     3. Active project context (if provided)
     4. Research mode instructions (if routed to Gemini)
-    5. Skill instructions (if a matching skill was found)
+    5. Available skill commands listing
+    6. Skill instructions (if a matching skill was found)
     """
     parts = [
         "You are Neo, a personal intelligence agent. "
@@ -420,6 +458,14 @@ def build_system_prompt(
     if routed_tier == "GEMINI":
         parts.append(_GEMINI_RESEARCH_PROMPT)
 
+    # Inject available skill commands
+    if available_skills:
+        lines = ["\n## Available Skill Commands"]
+        lines.append("The user can activate skills with slash commands:")
+        for s in available_skills:
+            lines.append(f"- /{s['name']} \u2014 {s.get('description', '')}")
+        parts.append("\n".join(lines))
+
     # Inject skill
     if skill_content:
         parts.append(f"\n## Skill Instructions\n{skill_content}")
@@ -436,6 +482,7 @@ async def process(
     routed_tier: str = "",
     messages: list[dict] | None = None,
     project_id: int | None = None,
+    available_skills: list[dict] | None = None,
 ) -> ProcessResult:
     """Process a user command through the full 6-stage lifecycle.
 
@@ -448,6 +495,7 @@ async def process(
         routed_tier: Which tier was selected (LOCAL/GEMINI/CLAUDE).
         messages: Conversation history (list of role/content dicts).
         project_id: Active project ID for context injection.
+        available_skills: List of enabled skill commands for system prompt.
 
     Returns:
         ProcessResult with status, message, tool_used, model_used, duration_ms
@@ -472,6 +520,7 @@ async def process(
             skill_content,
             project_id=project_id,
             routed_tier=routed_tier,
+            available_skills=available_skills,
         )
 
         # Truncate history to fit within context budget

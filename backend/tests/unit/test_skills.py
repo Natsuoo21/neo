@@ -1,4 +1,4 @@
-"""Tests for the Skills system — loader, parser, routing."""
+"""Tests for the Skills system — loader, parser, routing, slash commands."""
 
 import os
 import tempfile
@@ -7,10 +7,17 @@ import pytest
 
 from neo.skills.loader import (
     _parse_simple_yaml,
+    create_user_skill,
+    delete_skill,
+    get_available_skill_commands,
+    get_skill_by_name,
     load_all_skills,
     parse_skill_file,
+    parse_slash_command,
+    resolve_skill_slug,
     route_skill,
     sync_skills_to_db,
+    toggle_skill,
 )
 
 
@@ -137,6 +144,7 @@ class TestLoadAllSkills:
         """Skills from custom dir are loaded."""
         monkeypatch.setattr("neo.skills.loader._SKILLS_DIR", tmp_dir)
         monkeypatch.setattr("neo.skills.loader._USER_SKILLS_DIR", "/nonexistent")
+        monkeypatch.setattr("neo.skills.loader._COMMUNITY_SKILLS_DIR", "/nonexistent2")
 
         # Create a skill in tmp_dir
         with open(os.path.join(tmp_dir, "custom.md"), "w") as f:
@@ -149,6 +157,7 @@ class TestLoadAllSkills:
     def test_ignores_non_md_files(self, tmp_dir, monkeypatch):
         monkeypatch.setattr("neo.skills.loader._SKILLS_DIR", tmp_dir)
         monkeypatch.setattr("neo.skills.loader._USER_SKILLS_DIR", "/nonexistent")
+        monkeypatch.setattr("neo.skills.loader._COMMUNITY_SKILLS_DIR", "/nonexistent2")
 
         with open(os.path.join(tmp_dir, "readme.txt"), "w") as f:
             f.write("Not a skill file")
@@ -176,7 +185,7 @@ class TestSyncSkillsToDb:
 
 
 # ============================================
-# SKILL ROUTING
+# SKILL ROUTING (legacy keyword-based)
 # ============================================
 
 
@@ -205,3 +214,195 @@ class TestRouteSkill:
         """No skills synced — should return empty."""
         content = route_skill("write an email", memory_db)
         assert content == ""
+
+
+# ============================================
+# SLASH COMMAND PARSING
+# ============================================
+
+
+class TestParseSlashCommand:
+    def test_valid_slash_command(self):
+        slug, remainder = parse_slash_command("/email write a follow-up")
+        assert slug == "email"
+        assert remainder == "write a follow-up"
+
+    def test_slash_no_remainder(self):
+        slug, remainder = parse_slash_command("/email")
+        assert slug == "email"
+        assert remainder == ""
+
+    def test_normal_command_no_slash(self):
+        slug, remainder = parse_slash_command("write an email")
+        assert slug == ""
+        assert remainder == "write an email"
+
+    def test_whitespace_handling(self):
+        slug, remainder = parse_slash_command("  /meeting   take notes  ")
+        assert slug == "meeting"
+        assert remainder == "take notes"
+
+    def test_empty_slash(self):
+        slug, remainder = parse_slash_command("/")
+        assert slug == ""
+        assert remainder == "/"
+
+    def test_empty_string(self):
+        slug, remainder = parse_slash_command("")
+        assert slug == ""
+        assert remainder == ""
+
+
+# ============================================
+# RESOLVE SKILL SLUG
+# ============================================
+
+
+class TestResolveSkillSlug:
+    def test_exact_match(self, memory_db):
+        sync_skills_to_db(memory_db)
+        result = resolve_skill_slug("email_writer", memory_db)
+        assert result == "email_writer"
+
+    def test_prefix_match(self, memory_db):
+        sync_skills_to_db(memory_db)
+        result = resolve_skill_slug("email", memory_db)
+        assert result == "email_writer"
+
+    def test_no_match(self, memory_db):
+        sync_skills_to_db(memory_db)
+        result = resolve_skill_slug("nonexistent", memory_db)
+        assert result is None
+
+    def test_prefix_match_meeting(self, memory_db):
+        sync_skills_to_db(memory_db)
+        result = resolve_skill_slug("meeting", memory_db)
+        assert result == "meeting_notes"
+
+
+# ============================================
+# GET SKILL BY NAME
+# ============================================
+
+
+class TestGetSkillByName:
+    def test_valid_skill(self, memory_db):
+        sync_skills_to_db(memory_db)
+        name, content = get_skill_by_name("email_writer", memory_db)
+        assert name == "email_writer"
+        assert "Email Writer" in content
+
+    def test_missing_skill(self, memory_db):
+        sync_skills_to_db(memory_db)
+        name, content = get_skill_by_name("nonexistent", memory_db)
+        assert name == ""
+        assert content == ""
+
+    def test_disabled_skill(self, memory_db):
+        sync_skills_to_db(memory_db)
+        toggle_skill(memory_db, "email_writer", enabled=False)
+        name, content = get_skill_by_name("email_writer", memory_db)
+        assert name == ""
+        assert content == ""
+
+
+# ============================================
+# GET AVAILABLE SKILL COMMANDS
+# ============================================
+
+
+class TestGetAvailableSkillCommands:
+    def test_returns_all_enabled(self, memory_db):
+        sync_skills_to_db(memory_db)
+        commands = get_available_skill_commands(memory_db)
+        names = [c["name"] for c in commands]
+        assert "email_writer" in names
+        assert all("description" in c for c in commands)
+
+    def test_excludes_disabled(self, memory_db):
+        sync_skills_to_db(memory_db)
+        toggle_skill(memory_db, "email_writer", enabled=False)
+        commands = get_available_skill_commands(memory_db)
+        names = [c["name"] for c in commands]
+        assert "email_writer" not in names
+
+
+# ============================================
+# DELETE SKILL
+# ============================================
+
+
+class TestDeleteSkill:
+    def test_delete_user_skill(self, memory_db, tmp_dir):
+        # Create a user skill first
+        path = create_user_skill(
+            memory_db,
+            name="temp_skill",
+            description="Temporary",
+            task_types=["temp"],
+            content="Temp instructions",
+        )
+        assert os.path.isfile(path)
+
+        deleted = delete_skill(memory_db, "temp_skill")
+        assert deleted is True
+        assert not os.path.isfile(path)
+
+        # Verify DB row is gone
+        row = memory_db.execute(
+            "SELECT * FROM skills WHERE name = ?", ("temp_skill",)
+        ).fetchone()
+        assert row is None
+
+    def test_refuse_delete_public_skill(self, memory_db):
+        sync_skills_to_db(memory_db)
+        deleted = delete_skill(memory_db, "email_writer")
+        assert deleted is False
+
+        # Verify still exists
+        row = memory_db.execute(
+            "SELECT * FROM skills WHERE name = ?", ("email_writer",)
+        ).fetchone()
+        assert row is not None
+
+    def test_delete_nonexistent(self, memory_db):
+        deleted = delete_skill(memory_db, "nonexistent")
+        assert deleted is False
+
+
+# ============================================
+# CREATE SKILL FROM TOOL
+# ============================================
+
+
+class TestCreateSkillFromTool:
+    def test_creates_file_and_db_entry(self, memory_db, monkeypatch, tmp_dir):
+        """LLM tool wrapper creates file + DB entry."""
+        from neo.skills import loader
+
+        monkeypatch.setattr(loader, "_USER_SKILLS_DIR", tmp_dir)
+
+        path = create_user_skill(
+            memory_db,
+            name="meeting_agenda",
+            description="Create meeting agendas",
+            task_types=["meeting", "agenda"],
+            content="# Meeting Agenda\nHelp create structured meeting agendas.",
+            tools=["create_document"],
+        )
+
+        assert os.path.isfile(path)
+        assert path.endswith("meeting_agenda.md")
+
+        # Verify DB entry
+        row = memory_db.execute(
+            "SELECT * FROM skills WHERE name = ?", ("meeting_agenda",)
+        ).fetchone()
+        assert row is not None
+        assert row["skill_type"] == "user"
+
+        # Verify file content
+        parsed = parse_skill_file(path)
+        assert parsed["name"] == "meeting_agenda"
+        assert parsed["description"] == "Create meeting agendas"
+        assert "Meeting Agenda" in parsed["content"]

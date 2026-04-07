@@ -58,7 +58,16 @@ from neo.memory.seed import seed_user_profile
 from neo.orchestrator import process, set_mcp_host
 from neo.plugins.mcp_host import MCPHost
 from neo.router import CLAUDE, GEMINI, LOCAL, OPENAI, route, strip_override
-from neo.skills.loader import route_skill_with_name, sync_skills_to_db, toggle_skill
+from neo.skills.loader import (
+    create_user_skill,
+    delete_skill,
+    get_available_skill_commands,
+    get_skill_by_name,
+    parse_slash_command,
+    resolve_skill_slug,
+    sync_skills_to_db,
+    toggle_skill,
+)
 from neo.updater import UpdateChecker
 
 logger = logging.getLogger(__name__)
@@ -478,11 +487,34 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
     # clients (AsyncAnthropic, genai.Client, httpx.AsyncClient) stay bound to
     # a single long-lived loop instead of a per-request loop that gets closed.
     with get_session(db_path) as conn:
-        skill_name, skill_content = route_skill_with_name(clean_command, conn)
+        # Slash command routing — /skill-name rest of command
+        slash_slug, slash_remainder = parse_slash_command(clean_command)
+        skill_name = ""
+        skill_content = ""
+        user_command = clean_command
+
+        if slash_slug:
+            resolved = resolve_skill_slug(slash_slug, conn)
+            if resolved:
+                skill_name, skill_content = get_skill_by_name(resolved, conn)
+                user_command = slash_remainder or clean_command
+            else:
+                # Unknown slash command — return error immediately
+                return {
+                    "status": "error",
+                    "message": f"Unknown skill: /{slash_slug}. Type /skills to see available commands.",
+                    "tool_used": "", "tool_result": None, "model_used": "",
+                    "routed_tier": tier, "duration_ms": 0, "session_id": session_id,
+                }
+
+        # No slash prefix → no skill injected (removed old auto keyword matching)
+
+        # Always fetch available skill commands for system prompt
+        available_skills = get_available_skill_commands(conn)
 
         history = get_conversation(conn, session_id, limit=20)
         messages = [{"role": h["role"], "content": h["content"]} for h in history]
-        messages.append({"role": "user", "content": clean_command})
+        messages.append({"role": "user", "content": user_command})
 
         # Try primary provider, then fallback on runtime errors
         providers_to_try = [(tier, provider)]
@@ -491,13 +523,14 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
         result = None
         for attempt_tier, attempt_provider in providers_to_try:
             result = _shared_loop.run(process(
-                clean_command,
+                user_command,
                 attempt_provider,
                 conn,
                 skill_content,
                 skill_name=skill_name,
                 routed_tier=attempt_tier,
                 messages=messages,
+                available_skills=available_skills,
             ))
             if result["status"] == "success":
                 break
@@ -506,7 +539,7 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
                 attempt_provider.name(),
             )
 
-        add_message(conn, session_id, "user", clean_command)
+        add_message(conn, session_id, "user", user_command)
         if result["status"] == "success":
             add_message(
                 conn,
@@ -609,6 +642,68 @@ async def _rpc_skills_toggle(params: dict) -> dict:
 
     updated = await asyncio.to_thread(_update)
     return {"updated": updated, "name": name, "enabled": enabled}
+
+
+async def _rpc_skills_create(params: dict) -> dict:
+    """Create a new user skill from frontend form data."""
+    name = params.get("name", "").strip()
+    description = params.get("description", "").strip()
+    content = params.get("content", "").strip()
+    task_types = params.get("task_types", [])
+    tools = params.get("tools", [])
+
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if not content:
+        raise ValueError("Missing 'content' parameter")
+
+    def _create():
+        with get_session(_db_path) as conn:
+            path = create_user_skill(
+                conn,
+                name=name,
+                description=description,
+                task_types=task_types,
+                content=content,
+                tools=tools,
+            )
+            return path
+
+    path = await asyncio.to_thread(_create)
+    return {"created": True, "name": name, "path": path}
+
+
+async def _rpc_skills_import(params: dict) -> dict:
+    """Import skill(s) from a GitHub URL."""
+    from neo.skills.github_import import import_from_github
+
+    url = params.get("url", "").strip()
+    if not url:
+        raise ValueError("Missing 'url' parameter")
+
+    def _import():
+        with get_session(_db_path) as conn:
+            return import_from_github(url, conn)
+
+    imported = await asyncio.to_thread(_import)
+    return {
+        "imported": len(imported),
+        "skills": [{"name": s["name"], "description": s.get("description", "")} for s in imported],
+    }
+
+
+async def _rpc_skills_delete(params: dict) -> dict:
+    """Delete a user or community skill by name."""
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+
+    def _delete():
+        with get_session(_db_path) as conn:
+            return delete_skill(conn, name)
+
+    deleted = await asyncio.to_thread(_delete)
+    return {"deleted": deleted, "name": name}
 
 
 async def _rpc_actions_recent(params: dict) -> dict:
@@ -1131,6 +1226,9 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.conversation.load": _rpc_conversation_load,
     "neo.skills.list": _rpc_skills_list,
     "neo.skills.toggle": _rpc_skills_toggle,
+    "neo.skills.create": _rpc_skills_create,
+    "neo.skills.import": _rpc_skills_import,
+    "neo.skills.delete": _rpc_skills_delete,
     "neo.actions.recent": _rpc_actions_recent,
     "neo.stats": _rpc_stats,
     "neo.patterns": _rpc_patterns,

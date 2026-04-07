@@ -12,11 +12,14 @@ Skill file format:
     tools: [tool1, tool2]
     ---
     <Markdown instructions for the LLM>
+
+Activation: slash commands only (e.g., /email write a follow-up).
 """
 
 import json
 import logging
 import os
+import re
 import sqlite3
 
 from neo.memory.models import get_enabled_skills, upsert_skill
@@ -26,6 +29,154 @@ logger = logging.getLogger(__name__)
 # Directories to scan for skill files
 _SKILLS_DIR = os.path.join(os.path.dirname(__file__), "public")
 _USER_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "user")
+_COMMUNITY_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "community")
+
+
+# ---------------------------------------------------------------------------
+# Slash command parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_slash_command(command: str) -> tuple[str, str]:
+    """Parse ``/skill-name rest of command`` into (slug, remainder).
+
+    Returns:
+        (slug, remainder) if command starts with ``/``,
+        ("", original_command) otherwise.
+    """
+    stripped = command.strip()
+    if not stripped.startswith("/"):
+        return "", stripped
+
+    # Split on first whitespace: "/email write a note" → "email", "write a note"
+    parts = stripped[1:].split(None, 1)
+    if not parts:
+        return "", stripped
+
+    slug = parts[0].lower()
+    remainder = parts[1] if len(parts) > 1 else ""
+    return slug, remainder
+
+
+def resolve_skill_slug(slug: str, conn: sqlite3.Connection) -> str | None:
+    """Map a user-typed slug to a DB skill name.
+
+    Resolution order:
+    1. Exact match on skill name
+    2. Prefix match (e.g., ``/email`` → ``email_writer``)
+
+    Returns:
+        Skill name string, or None if no match.
+    """
+    enabled = get_enabled_skills(conn)
+
+    # 1. Exact match
+    for skill in enabled:
+        if skill["name"] == slug:
+            return skill["name"]
+
+    # 2. Prefix match
+    for skill in enabled:
+        if skill["name"].startswith(slug):
+            return skill["name"]
+
+    return None
+
+
+def get_skill_by_name(name: str, conn: sqlite3.Connection) -> tuple[str, str]:
+    """Look up an enabled skill by exact name and return (name, content).
+
+    Returns:
+        (name, content) or ("", "") if not found or disabled.
+    """
+    row = conn.execute(
+        "SELECT name, file_path FROM skills WHERE name = ? AND is_enabled = 1",
+        (name,),
+    ).fetchone()
+    if not row:
+        return "", ""
+
+    parsed = parse_skill_file(row["file_path"])
+    if parsed:
+        return parsed["name"], parsed["content"]
+    return "", ""
+
+
+def get_available_skill_commands(conn: sqlite3.Connection) -> list[dict]:
+    """Return list of ``{name, description}`` for all enabled skills.
+
+    Used to populate the system prompt with available slash commands.
+    """
+    enabled = get_enabled_skills(conn)
+    return [
+        {"name": s["name"], "description": s.get("description", "")}
+        for s in enabled
+    ]
+
+
+def delete_skill(conn: sqlite3.Connection, name: str) -> bool:
+    """Delete a user or community skill file and its DB row.
+
+    Refuses to delete public (built-in) skills.
+
+    Returns:
+        True if deleted, False if not found or protected.
+    """
+    row = conn.execute(
+        "SELECT file_path, skill_type FROM skills WHERE name = ?", (name,)
+    ).fetchone()
+    if not row:
+        return False
+
+    if row["skill_type"] == "public":
+        logger.warning("Refusing to delete built-in skill: %s", name)
+        return False
+
+    # Remove the file
+    file_path = row["file_path"]
+    if file_path and os.path.isfile(file_path):
+        os.remove(file_path)
+        logger.info("Deleted skill file: %s", file_path)
+
+    # Remove the DB row
+    conn.execute("DELETE FROM skills WHERE name = ?", (name,))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# LLM tool wrapper for create_skill
+# ---------------------------------------------------------------------------
+
+
+def create_user_skill_from_tool(
+    name: str,
+    description: str,
+    instructions: str,
+    task_types: list[str] | None = None,
+    tools: list[str] | None = None,
+) -> str:
+    """Wrapper for LLM tool dispatch — opens its own DB session.
+
+    Called by ``dispatch_tool()`` which doesn't pass ``conn``.
+    """
+    from neo.memory.db import get_session
+
+    db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")
+    with get_session(db_path) as conn:
+        path = create_user_skill(
+            conn,
+            name=name,
+            description=description,
+            task_types=task_types or [],
+            content=instructions,
+            tools=tools,
+        )
+    return f"Skill '{name}' created at {path}"
+
+
+# ---------------------------------------------------------------------------
+# Skill file parsing
+# ---------------------------------------------------------------------------
 
 
 def parse_skill_file(file_path: str) -> dict:
@@ -100,15 +251,20 @@ def _parse_simple_yaml(raw: str) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Load & sync
+# ---------------------------------------------------------------------------
+
+
 def load_all_skills() -> list[dict]:
-    """Load all skill files from public/ and user/ directories.
+    """Load all skill files from public/, user/, and community/ directories.
 
     Returns:
         List of parsed skill dicts.
     """
     skills = []
 
-    for skills_dir in [_SKILLS_DIR, _USER_SKILLS_DIR]:
+    for skills_dir in [_SKILLS_DIR, _USER_SKILLS_DIR, _COMMUNITY_SKILLS_DIR]:
         if not os.path.isdir(skills_dir):
             continue
         for filename in sorted(os.listdir(skills_dir)):
@@ -126,8 +282,11 @@ def _detect_skill_type(file_path: str) -> str:
     """Determine skill type based on which directory the file is in."""
     real_path = os.path.realpath(file_path)
     real_public = os.path.realpath(_SKILLS_DIR)
+    real_community = os.path.realpath(_COMMUNITY_SKILLS_DIR)
     if real_path.startswith(real_public + os.sep):
         return "public"
+    if real_path.startswith(real_community + os.sep):
+        return "community"
     return "user"
 
 
@@ -229,8 +388,6 @@ def create_user_skill(
     Returns:
         Path to the created skill file.
     """
-    import re
-
     # Sanitize name for filename
     safe_name = re.sub(r"[^a-z0-9_]", "_", name.lower().strip())
     if not safe_name:
