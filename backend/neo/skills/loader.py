@@ -262,6 +262,10 @@ def load_all_skills(extra_dirs: list[str] | None = None) -> list[dict]:
     Scans: public/, user/, community/, plus any extra_dirs provided
     (e.g. user-configured local folders).
 
+    Supports two layouts:
+    - Flat: ``skills_dir/*.md`` (Neo native)
+    - Nested: ``skills_dir/skill_name/SKILL.md`` (Claude-compatible)
+
     Returns:
         List of parsed skill dicts.
     """
@@ -277,14 +281,26 @@ def load_all_skills(extra_dirs: list[str] | None = None) -> list[dict]:
     for skills_dir in dirs:
         if not os.path.isdir(skills_dir):
             continue
-        for filename in sorted(os.listdir(skills_dir)):
-            if not filename.endswith(".md"):
+        for entry in sorted(os.listdir(skills_dir)):
+            entry_path = os.path.join(skills_dir, entry)
+
+            # Flat layout: *.md files directly in the directory
+            if entry.endswith(".md") and os.path.isfile(entry_path):
+                skill = parse_skill_file(entry_path)
+                if skill and skill["name"] not in seen_names:
+                    skills.append(skill)
+                    seen_names.add(skill["name"])
                 continue
-            file_path = os.path.join(skills_dir, filename)
-            skill = parse_skill_file(file_path)
-            if skill and skill["name"] not in seen_names:
-                skills.append(skill)
-                seen_names.add(skill["name"])
+
+            # Nested layout: subdirectory with SKILL.md inside
+            # (Claude skill format: skills/copywriting/SKILL.md)
+            if os.path.isdir(entry_path):
+                skill_file = os.path.join(entry_path, "SKILL.md")
+                if os.path.isfile(skill_file):
+                    skill = parse_skill_file(skill_file)
+                    if skill and skill["name"] not in seen_names:
+                        skills.append(skill)
+                        seen_names.add(skill["name"])
 
     return skills
 
