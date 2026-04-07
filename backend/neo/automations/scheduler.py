@@ -10,9 +10,11 @@ automatically detected and run within the misfire_grace_time window.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -207,6 +209,19 @@ def _run_automation_job(automation_id: int, command: str) -> None:
     _active_scheduler._execute_automation(automation_id, command)
 
 
+class _SchedulerLoop:
+    """Persistent event loop for the scheduler's async calls."""
+
+    def __init__(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
+
+    def run(self, coro):  # type: ignore[no-untyped-def]
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+
 class NeoScheduler:
     """Manages scheduled automations via APScheduler."""
 
@@ -219,6 +234,7 @@ class NeoScheduler:
         self._db_path = db_path
         self._registry = provider_registry
         self._broadcast = broadcast_fn or _noop_broadcast
+        self._shared_loop = _SchedulerLoop()
 
         jobstore = SQLAlchemyJobStore(url=f"sqlite:///{db_path}")
         self._scheduler = BackgroundScheduler(
@@ -346,18 +362,14 @@ class NeoScheduler:
         try:
             # RULE 1 — Check destructive → request confirmation
             if is_destructive(command):
-                loop = asyncio.new_event_loop()
-                try:
-                    approved = loop.run_until_complete(
-                        request_confirmation(
-                            f"Automation '{auto['name']}' wants to execute: {command}",
-                            automation_id=automation_id,
-                            timeout_s=60.0,
-                            notify_callback=self._broadcast,
-                        )
+                approved = self._shared_loop.run(
+                    request_confirmation(
+                        f"Automation '{auto['name']}' wants to execute: {command}",
+                        automation_id=automation_id,
+                        timeout_s=60.0,
+                        notify_callback=self._broadcast,
                     )
-                finally:
-                    loop.close()
+                )
 
                 if not approved:
                     logger.info("Automation %d cancelled — confirmation denied/timed out", automation_id)
@@ -381,22 +393,18 @@ class NeoScheduler:
             if provider is None:
                 raise RuntimeError("No LLM provider available")
 
-            loop = asyncio.new_event_loop()
-            try:
-                with get_session(self._db_path) as conn:
-                    skill_name, skill_content = route_skill_with_name(clean_command, conn)
-                    result = loop.run_until_complete(
-                        process(
-                            clean_command,
-                            provider,
-                            conn,
-                            skill_content,
-                            skill_name=skill_name,
-                            routed_tier=tier,
-                        )
+            with get_session(self._db_path) as conn:
+                skill_name, skill_content = route_skill_with_name(clean_command, conn)
+                result = self._shared_loop.run(
+                    process(
+                        clean_command,
+                        provider,
+                        conn,
+                        skill_content,
+                        skill_name=skill_name,
+                        routed_tier=tier,
                     )
-            finally:
-                loop.close()
+                )
 
             elapsed_ms = int((time.time() - start) * 1000)
 

@@ -84,6 +84,36 @@ _MAX_COMMAND_LENGTH = 10_000
 _update_checker: UpdateChecker | None = None
 
 
+class _SharedLoop:
+    """A single persistent event loop running in a background thread.
+
+    Async LLM clients (AsyncAnthropic, genai.Client, httpx.AsyncClient) bind
+    to the loop where they were created.  If we create + close a loop per
+    request, the cached client references a dead loop on the next call
+    (→ "Event loop is closed").  This class keeps one loop alive for the
+    lifetime of the server.
+    """
+
+    def __init__(self) -> None:
+        import threading
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
+
+    def run(self, coro):  # type: ignore[no-untyped-def]
+        """Submit a coroutine to the shared loop and block until it completes."""
+        import concurrent.futures
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
+
+    def stop(self) -> None:
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=5)
+
+
+_shared_loop = _SharedLoop()
+
+
 def _suggestion_job() -> None:
     """Module-level target for APScheduler — generate suggestions."""
     if _db_path:
@@ -444,50 +474,47 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
             "routed_tier": tier, "duration_ms": 0, "session_id": session_id,
         }
 
-    # We need an event loop for the async process() call inside the thread.
-    # Create a new loop since we're in a thread.
-    loop = asyncio.new_event_loop()
-    try:
-        with get_session(db_path) as conn:
-            skill_name, skill_content = route_skill_with_name(clean_command, conn)
+    # Run async process() on the shared background loop so that LLM provider
+    # clients (AsyncAnthropic, genai.Client, httpx.AsyncClient) stay bound to
+    # a single long-lived loop instead of a per-request loop that gets closed.
+    with get_session(db_path) as conn:
+        skill_name, skill_content = route_skill_with_name(clean_command, conn)
 
-            history = get_conversation(conn, session_id, limit=20)
-            messages = [{"role": h["role"], "content": h["content"]} for h in history]
-            messages.append({"role": "user", "content": clean_command})
+        history = get_conversation(conn, session_id, limit=20)
+        messages = [{"role": h["role"], "content": h["content"]} for h in history]
+        messages.append({"role": "user", "content": clean_command})
 
-            # Try primary provider, then fallback on runtime errors
-            providers_to_try = [(tier, provider)]
-            providers_to_try.extend(get_fallback_providers(registry, tier))
+        # Try primary provider, then fallback on runtime errors
+        providers_to_try = [(tier, provider)]
+        providers_to_try.extend(get_fallback_providers(registry, tier))
 
-            result = None
-            for attempt_tier, attempt_provider in providers_to_try:
-                result = loop.run_until_complete(process(
-                    clean_command,
-                    attempt_provider,
-                    conn,
-                    skill_content,
-                    skill_name=skill_name,
-                    routed_tier=attempt_tier,
-                    messages=messages,
-                ))
-                if result["status"] == "success":
-                    break
-                logger.warning(
-                    "Provider %s failed, trying next fallback...",
-                    attempt_provider.name(),
-                )
-
-            add_message(conn, session_id, "user", clean_command)
+        result = None
+        for attempt_tier, attempt_provider in providers_to_try:
+            result = _shared_loop.run(process(
+                clean_command,
+                attempt_provider,
+                conn,
+                skill_content,
+                skill_name=skill_name,
+                routed_tier=attempt_tier,
+                messages=messages,
+            ))
             if result["status"] == "success":
-                add_message(
-                    conn,
-                    session_id,
-                    "assistant",
-                    result["message"],
-                    model_used=result["model_used"],
-                )
-    finally:
-        loop.close()
+                break
+            logger.warning(
+                "Provider %s failed, trying next fallback...",
+                attempt_provider.name(),
+            )
+
+        add_message(conn, session_id, "user", clean_command)
+        if result["status"] == "success":
+            add_message(
+                conn,
+                session_id,
+                "assistant",
+                result["message"],
+                model_used=result["model_used"],
+            )
 
     return {
         "status": result["status"],
