@@ -44,70 +44,111 @@ class ToolError(Exception):
 TOOL_DEFINITIONS = [
     {
         "name": "create_excel",
-        "description": "Create an Excel spreadsheet (.xlsx) with specified structure and formatting.",
+        "description": (
+            "Create an Excel spreadsheet (.xlsx). You MUST provide the sheets array with "
+            "headers and rows — the tool writes exactly what you pass. "
+            "Example: title='Budget', sheets=[{name:'Q1', headers:['Item','Cost'], "
+            "rows:[['Rent',1200],['Food',400]]}]"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "The spreadsheet title / filename"},
+                "title": {
+                    "type": "string",
+                    "description": "Filename for the spreadsheet (without .xlsx extension)",
+                },
                 "output_path": {
                     "type": "string",
-                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                    "description": "Directory where the file should be saved. If omitted, saves to default directory.",
                 },
                 "sheets": {
                     "type": "array",
+                    "description": (
+                        "List of sheets. Each sheet MUST have: name (string), "
+                        "headers (array of column names), rows (array of arrays — "
+                        "each inner array is one row of cell values). "
+                        "Use numbers for numeric cells, strings for text."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string"},
-                            "headers": {"type": "array", "items": {"type": "string"}},
-                            "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                            "name": {"type": "string", "description": "Sheet tab name"},
+                            "headers": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Column header names (first row)",
+                            },
+                            "rows": {
+                                "type": "array",
+                                "items": {"type": "array"},
+                                "description": "Data rows — each row is an array of values matching the headers",
+                            },
                         },
-                        "required": ["name"],
+                        "required": ["name", "headers", "rows"],
                     },
-                    "description": "List of sheets to create",
                 },
             },
-            "required": ["title"],
+            "required": ["title", "sheets"],
         },
     },
     {
         "name": "create_presentation",
-        "description": "Create a PowerPoint presentation (.pptx) with slides.",
+        "description": (
+            "Create a PowerPoint presentation (.pptx). You MUST provide the slides array. "
+            "Example: title='Report', slides=[{title:'Welcome', content:'Project overview'}, "
+            "{title:'Results', content:'Revenue grew 20%'}]"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "Presentation title / filename"},
+                "title": {
+                    "type": "string",
+                    "description": "Filename for the presentation (without .pptx extension)",
+                },
                 "output_path": {
                     "type": "string",
-                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                    "description": "Directory where the file should be saved. If omitted, saves to default directory.",
                 },
                 "slides": {
                     "type": "array",
+                    "description": "List of slides. Each slide has a title and content text.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string"},
-                            "content": {"type": "string"},
+                            "title": {"type": "string", "description": "Slide heading"},
+                            "content": {"type": "string", "description": "Slide body text"},
                         },
-                        "required": ["title"],
+                        "required": ["title", "content"],
                     },
-                    "description": "List of slides",
                 },
             },
-            "required": ["title"],
+            "required": ["title", "slides"],
         },
     },
     {
         "name": "create_document",
-        "description": "Create a Word document (.docx) with content.",
+        "description": (
+            "Create a Word document (.docx). Use markdown-style formatting in content: "
+            "# Heading 1, ## Heading 2, ### Heading 3, - bullet items, plain text for paragraphs. "
+            "Example: title='Report', content='# Introduction\\nThis is the intro.\\n## Details\\n- Item 1\\n- Item 2'"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "Document title / filename"},
-                "content": {"type": "string", "description": "Document body text (supports markdown-style headings)"},
+                "title": {
+                    "type": "string",
+                    "description": "Filename for the document (without .docx extension)",
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Document body. Use # for headings, - for bullets, blank lines for spacing. "
+                        "Write ALL the content here — this is what goes into the file."
+                    ),
+                },
                 "output_path": {
                     "type": "string",
-                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                    "description": "Directory where the file should be saved. If omitted, saves to default directory.",
                 },
             },
             "required": ["title"],
