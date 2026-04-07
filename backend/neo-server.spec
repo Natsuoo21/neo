@@ -175,7 +175,7 @@ a = Analysis(
         # ------------------------------------------------------------------
         "anthropic",
         "openai",
-        "google.generativeai",
+        "google.genai",
 
         # ------------------------------------------------------------------
         # Third-party — Google APIs (Calendar, Gmail, OAuth)

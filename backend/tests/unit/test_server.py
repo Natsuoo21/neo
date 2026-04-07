@@ -335,7 +335,7 @@ def test_patterns(client):
 
 # ---- neo.automation.run ----------------------------------------------------
 
-def test_automation_run(client):
+def test_automation_run(client, monkeypatch):
     """Create an automation then manually trigger it."""
     r = _rpc(client, "neo.automation.create", {
         "name": "Test Run",
@@ -344,10 +344,17 @@ def test_automation_run(client):
         "trigger_config": {"cron": "0 * * * *"},
     })
     auto = r.json()["result"]["automation"]
+
+    # Mock scheduler to avoid nested event loops / unawaited coroutine
+    from unittest.mock import MagicMock
+    mock_scheduler = MagicMock()
+    monkeypatch.setattr(srv, "_scheduler", mock_scheduler)
+
     r = _rpc(client, "neo.automation.run", {"id": auto["id"]})
     data = r.json()["result"]
     assert data["triggered"] is True
     assert data["id"] == auto["id"]
+    mock_scheduler._execute_automation.assert_called_once_with(auto["id"], "hello")
 
 
 def test_automation_run_missing_id(client):

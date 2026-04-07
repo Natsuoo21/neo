@@ -58,14 +58,20 @@ def _mock_tool_response(tool_name: str, tool_args: dict, prompt_tokens: int = 10
     return response
 
 
+def _mock_client(response):
+    """Create a mock genai.Client with async generate_content."""
+    mock = MagicMock()
+    mock.aio.models.generate_content = AsyncMock(return_value=response)
+    return mock
+
+
 class TestComplete:
     @pytest.mark.asyncio
     async def test_complete_returns_text(self, provider):
         mock_response = _mock_text_response("Hello from Gemini")
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             result = await provider.complete("You are helpful.", "Say hello")
 
         assert result == "Hello from Gemini"
@@ -74,10 +80,9 @@ class TestComplete:
     async def test_complete_empty_response(self, provider):
         mock_response = _mock_text_response("")
         mock_response.text = None
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             result = await provider.complete("sys", "user")
 
         assert result == ""
@@ -87,10 +92,9 @@ class TestCompleteWithTools:
     @pytest.mark.asyncio
     async def test_returns_tool_use(self, provider):
         mock_response = _mock_tool_response("create_note", {"title": "Test"})
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             result = await provider.complete_with_tools("sys", "create a note", [])
 
         assert result["type"] == "tool_use"
@@ -100,10 +104,9 @@ class TestCompleteWithTools:
     @pytest.mark.asyncio
     async def test_returns_text_when_no_tool_call(self, provider):
         mock_response = _mock_text_response("Just a text answer")
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             result = await provider.complete_with_tools("sys", "what is Neo?", [])
 
         assert result["type"] == "text"
@@ -114,11 +117,9 @@ class TestCompleteWithTools:
         mock_response = MagicMock()
         mock_response.candidates = []
         mock_response.usage_metadata = MagicMock(prompt_token_count=0, candidates_token_count=0)
+        client = _mock_client(mock_response)
 
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
-
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             result = await provider.complete_with_tools("sys", "test", [])
 
         assert result["type"] == "text"
@@ -129,10 +130,9 @@ class TestDailyTokenTracking:
     @pytest.mark.asyncio
     async def test_tracks_tokens(self, provider):
         mock_response = _mock_text_response("hi", prompt_tokens=100, candidate_tokens=50)
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             await provider.complete("sys", "user")
 
         assert provider.daily_tokens_used == 150
@@ -140,10 +140,9 @@ class TestDailyTokenTracking:
     @pytest.mark.asyncio
     async def test_accumulates_across_calls(self, provider):
         mock_response = _mock_text_response("hi", prompt_tokens=100, candidate_tokens=50)
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
+        client = _mock_client(mock_response)
 
-        with patch.object(provider, "_get_model", return_value=mock_model):
+        with patch.object(provider, "_get_client", return_value=client):
             await provider.complete("sys", "call1")
             await provider.complete("sys", "call2")
 
@@ -183,12 +182,10 @@ class TestConvertTools:
                 "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
             }
         ]
-        with patch("google.generativeai.protos") as mock_protos:
-            mock_protos.FunctionDeclaration = MagicMock()
-            mock_protos.Tool = MagicMock()
+        with patch("google.genai.types.Tool") as mock_tool:
             result = GeminiProvider._convert_tools(tools)
             assert result is not None
-            mock_protos.FunctionDeclaration.assert_called_once()
+            mock_tool.assert_called_once()
 
     def test_empty_tools_returns_none(self):
         assert GeminiProvider._convert_tools([]) is None
