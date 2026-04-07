@@ -7,12 +7,13 @@ from pptx import Presentation
 from neo.tools.paths import resolve_path
 
 
-def create_presentation(title: str, slides: list[dict] | None = None) -> str:
+def create_presentation(title: str, slides: list[dict] | None = None, output_path: str | None = None) -> str:
     """Create a new PowerPoint presentation.
 
     Args:
         title: Filename (without extension) or full path.
         slides: List of dicts with keys: title (str), content (str).
+        output_path: Directory where the file should be saved. If omitted, uses default.
 
     Returns:
         Absolute path to the created .pptx file.
@@ -51,7 +52,7 @@ def create_presentation(title: str, slides: list[dict] | None = None) -> str:
                     tf = body.text_frame
                     tf.text = slide_content
 
-    file_path = resolve_path(title, ".pptx")
+    file_path = resolve_path(title, ".pptx", output_dir=output_path)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     prs.save(file_path)
     return file_path

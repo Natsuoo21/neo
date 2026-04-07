@@ -3,7 +3,7 @@
 import os
 import shutil
 
-from neo.tools.paths import PROTECTED_DIRS
+from neo.tools.paths import PROTECTED_DIRS, _validate_write_path
 
 
 def manage_file(action: str, source: str, destination: str = "") -> str:
@@ -25,7 +25,7 @@ def manage_file(action: str, source: str, destination: str = "") -> str:
     _check_safety(source)
     if destination:
         destination = os.path.expanduser(destination)
-        _check_safety(destination)
+        _validate_write_path(destination)
 
     if action == "move":
         if not destination:

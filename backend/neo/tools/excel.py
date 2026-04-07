@@ -18,6 +18,7 @@ def create_workbook(
     title: str,
     sheets: list[dict] | None = None,
     formatting: dict | None = None,
+    output_path: str | None = None,
 ) -> str:
     """Create a new Excel workbook with optional sheets and formatting.
 
@@ -25,6 +26,7 @@ def create_workbook(
         title: Filename (without extension) or full path.
         sheets: List of dicts with keys: name, headers (list[str]), rows (list[list]).
         formatting: Optional dict with style overrides.
+        output_path: Directory where the file should be saved. If omitted, uses default.
 
     Returns:
         Absolute path to the created .xlsx file.
@@ -71,7 +73,7 @@ def create_workbook(
                 ws.column_dimensions[col_letter].width = min(max_len + 4, 50)
 
     # Determine save path
-    file_path = resolve_path(title, ".xlsx")
+    file_path = resolve_path(title, ".xlsx", output_dir=output_path)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     wb.save(file_path)
     return file_path

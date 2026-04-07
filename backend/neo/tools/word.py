@@ -7,12 +7,13 @@ from docx import Document
 from neo.tools.paths import resolve_path
 
 
-def create_document(title: str, content: str = "") -> str:
+def create_document(title: str, content: str = "", output_path: str | None = None) -> str:
     """Create a new Word document.
 
     Args:
         title: Filename (without extension) or full path.
         content: Document body. Lines starting with # are converted to headings.
+        output_path: Directory where the file should be saved. If omitted, uses default.
 
     Returns:
         Absolute path to the created .docx file.
@@ -38,7 +39,7 @@ def create_document(title: str, content: str = "") -> str:
             else:
                 doc.add_paragraph(line)
 
-    file_path = resolve_path(title, ".docx")
+    file_path = resolve_path(title, ".docx", output_dir=output_path)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     doc.save(file_path)
     return file_path

@@ -49,6 +49,10 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "The spreadsheet title / filename"},
+                "output_path": {
+                    "type": "string",
+                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                },
                 "sheets": {
                     "type": "array",
                     "items": {
@@ -73,6 +77,10 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "Presentation title / filename"},
+                "output_path": {
+                    "type": "string",
+                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                },
                 "slides": {
                     "type": "array",
                     "items": {
@@ -97,6 +105,10 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "title": {"type": "string", "description": "Document title / filename"},
                 "content": {"type": "string", "description": "Document body text (supports markdown-style headings)"},
+                "output_path": {
+                    "type": "string",
+                    "description": "Full path where the file should be saved. If omitted, saves to default directory.",
+                },
             },
             "required": ["title"],
         },
@@ -339,7 +351,10 @@ def build_system_prompt(
             f"- Language: {prefs.get('language', 'en')}\n"
             f"- Timezone: {prefs.get('timezone', 'UTC')}\n"
             f"- Default save directory: {tools.get('default_save_dir', '~/Documents/Neo')}\n"
-            f"- Obsidian vault: {tools.get('obsidian_vault', 'not configured')}"
+            f"- Downloads directory: ~/Downloads\n"
+            f"- Obsidian vault: {tools.get('obsidian_vault', 'not configured')}\n"
+            f"- You can save files to any user directory. Use output_path when the user specifies a location.\n"
+            f"- NEVER write to system directories (C:\\Windows, /etc, /usr, etc.) or sensitive dirs (.ssh, .gnupg)."
         )
 
     # Inject project context

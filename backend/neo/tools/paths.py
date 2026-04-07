@@ -34,13 +34,27 @@ def get_default_save_dir() -> str:
     return os.path.expanduser(os.environ.get("DEFAULT_SAVE_DIR", "~/Documents/Neo"))
 
 
-def resolve_path(title: str, extension: str) -> str:
+def resolve_path(title: str, extension: str, output_dir: str | None = None) -> str:
     """Resolve a title to a safe, validated absolute file path.
 
     - Expands ~ to home directory
-    - If absolute, validates it falls within the user's home or save dir
-    - If relative, sanitizes and places in default save directory
+    - If output_dir is given, saves there instead of the default directory
+    - If absolute, validates against system/sensitive dirs
+    - If relative, sanitizes and places in output_dir or default save directory
     """
+    # If output_dir is provided, place the file there
+    if output_dir:
+        expanded_dir = os.path.expanduser(output_dir)
+        # Extract just the filename from title (strip any path components)
+        basename = os.path.basename(title) if os.sep in title or "/" in title else title
+        safe_name = "".join(c if c.isalnum() or c in " -_." else "_" for c in basename)
+        safe_name = safe_name.strip().replace(" ", "_")
+        if not safe_name.endswith(extension):
+            safe_name += extension
+        full_path = os.path.join(expanded_dir, safe_name)
+        _validate_write_path(full_path)
+        return full_path
+
     # Expand ~ before checking if absolute
     expanded = os.path.expanduser(title)
 
@@ -66,9 +80,8 @@ def _validate_write_path(path: str) -> None:
     Blocks:
     1. System directories (/, /bin, /etc, etc.)
     2. Sensitive home subdirectories (~/.ssh, ~/.gnupg, ~/.config)
-    3. Paths outside the user's home directory or configured save dir
 
-    Raises ValueError if the path is outside allowed boundaries.
+    Raises ValueError if the path targets a protected location.
     """
     real_path = os.path.realpath(path)
 
@@ -83,10 +96,3 @@ def _validate_write_path(path: str) -> None:
         sensitive_path = os.path.join(home, sensitive)
         if real_path == sensitive_path or real_path.startswith(sensitive_path + os.sep):
             raise ValueError(f"Refusing to write to sensitive directory: {real_path}")
-
-    # Ensure the path is under the user's home, configured save dir, or /tmp
-    save_dir = os.path.realpath(get_default_save_dir())
-    real_home = os.path.realpath(home)
-    allowed_prefixes = [real_home + os.sep, save_dir + os.sep, "/tmp" + os.sep]
-    if not any(real_path.startswith(prefix) for prefix in allowed_prefixes):
-        raise ValueError(f"Path is outside allowed directories: {real_path}")

@@ -317,3 +317,60 @@ class TestPaths:
         result = resolve_path("~/Documents/Neo/test", ".xlsx")
         assert "~" not in result
         assert os.path.isabs(result)
+
+    def test_resolve_path_with_output_dir(self, tmp_dir):
+        from neo.tools.paths import resolve_path
+
+        result = resolve_path("Report", ".xlsx", output_dir=tmp_dir)
+        assert result == os.path.join(tmp_dir, "Report.xlsx")
+
+    def test_resolve_path_output_dir_blocks_system(self):
+        from neo.tools.paths import resolve_path
+
+        with pytest.raises(ValueError, match="protected"):
+            resolve_path("Report", ".xlsx", output_dir="/etc")
+
+    def test_resolve_path_output_dir_blocks_sensitive(self):
+        from neo.tools.paths import resolve_path
+
+        with pytest.raises(ValueError, match="sensitive"):
+            resolve_path("key", ".xlsx", output_dir=os.path.expanduser("~/.ssh"))
+
+    def test_arbitrary_user_dir_allowed(self, tmp_dir):
+        """Paths outside ~/Documents/Neo are now allowed (relaxed validation)."""
+        from neo.tools.paths import resolve_path
+
+        # Any user-writable directory should work
+        result = resolve_path(os.path.join(tmp_dir, "subdir", "file"), ".docx")
+        assert result.endswith(".docx")
+        assert tmp_dir in result
+
+
+class TestOutputPath:
+    """Test output_path parameter on creation tools."""
+
+    def test_word_output_path(self, tmp_dir):
+        path = create_document(title="Doc", output_path=tmp_dir)
+        assert os.path.exists(path)
+        assert path.startswith(tmp_dir)
+        assert path.endswith(".docx")
+
+    def test_excel_output_path(self, tmp_dir):
+        path = create_workbook(title="Sheet", output_path=tmp_dir)
+        assert os.path.exists(path)
+        assert path.startswith(tmp_dir)
+        assert path.endswith(".xlsx")
+
+    def test_powerpoint_output_path(self, tmp_dir):
+        path = create_presentation(title="Deck", output_path=tmp_dir)
+        assert os.path.exists(path)
+        assert path.startswith(tmp_dir)
+        assert path.endswith(".pptx")
+
+    def test_output_path_blocks_system_dir(self):
+        with pytest.raises(ValueError, match="protected"):
+            create_document(title="Doc", output_path="/etc")
+
+    def test_output_path_blocks_sensitive_dir(self):
+        with pytest.raises(ValueError, match="sensitive"):
+            create_document(title="Doc", output_path=os.path.expanduser("~/.ssh"))
