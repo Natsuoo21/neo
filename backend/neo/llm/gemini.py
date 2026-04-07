@@ -79,6 +79,10 @@ class GeminiProvider(LLMProvider):
             config_kwargs["system_instruction"] = system
         if gemini_tools:
             config_kwargs["tools"] = gemini_tools
+            # Nudge Gemini to prefer tool calls over text responses
+            config_kwargs["tool_config"] = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+            )
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
