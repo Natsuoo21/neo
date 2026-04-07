@@ -71,7 +71,7 @@ export interface Skill {
   id: number;
   name: string;
   file_path: string;
-  skill_type: "public" | "user";
+  skill_type: "public" | "user" | "community";
   description: string;
   task_types: string;
   is_enabled: number;
@@ -87,6 +87,22 @@ export interface SkillsToggleResult {
   updated: boolean;
   name: string;
   enabled: boolean;
+}
+
+export interface SkillsCreateResult {
+  created: boolean;
+  name: string;
+  path: string;
+}
+
+export interface SkillsImportResult {
+  imported: number;
+  skills: { name: string; description: string }[];
+}
+
+export interface SkillsDeleteResult {
+  deleted: boolean;
+  name: string;
 }
 
 export interface ActionLogEntry {
