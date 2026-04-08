@@ -8,6 +8,9 @@ from neo.tools.browser import (
     BrowserConfig,
     BrowserController,
     browse_url,
+    download_file,
+    fill_form,
+    monitor_page,
     research_pipeline,
     take_screenshot,
 )
@@ -378,6 +381,113 @@ class TestTakeScreenshot:
             mock_apw.return_value.start = AsyncMock(return_value=pw)
             result = take_screenshot("https://example.com", output)
             assert result == output
+
+
+class TestFillFormWrapper:
+    def test_fill_form(self):
+        page = _make_mock_page()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            result = fill_form(
+                "https://form.com",
+                {"#name": "John", "#email": "john@test.com"},
+                submit_selector="#submit",
+            )
+            assert "Form filled" in result
+            assert page.fill.call_count == 2
+            page.click.assert_called_once_with("#submit")
+
+    def test_fill_form_no_submit(self):
+        page = _make_mock_page()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            result = fill_form("https://form.com", {"#name": "Jane"})
+            assert "Form filled" in result
+            page.click.assert_not_called()
+
+
+class TestDownloadFileWrapper:
+    def test_download_file(self):
+        """Sync wrapper delegates to BrowserController.download_file."""
+        with patch("neo.tools.browser.BrowserController") as MockCtrl:
+            instance = MockCtrl.return_value
+            instance.start = AsyncMock()
+            instance.stop = AsyncMock()
+            instance.download_file = AsyncMock(return_value="/tmp/downloads/report.pdf")
+
+            result = download_file("https://example.com/report.pdf", "/tmp/downloads")
+            assert "report.pdf" in result
+            instance.download_file.assert_called_once_with(
+                "https://example.com/report.pdf", "/tmp/downloads",
+            )
+
+
+class TestMonitorPageWrapper:
+    def test_monitor_page_returns_json(self):
+        """Sync wrapper returns a JSON string."""
+        call_count = 0
+
+        async def _dynamic_inner_text():
+            nonlocal call_count
+            call_count += 1
+            return "old" if call_count <= 1 else "new"
+
+        page = _make_mock_page(inner_text="old")
+        element = AsyncMock()
+        element.inner_text = _dynamic_inner_text
+        page.query_selector = AsyncMock(return_value=element)
+        page.reload = AsyncMock()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            with patch("neo.tools.browser.asyncio.sleep", new_callable=AsyncMock):
+                result = monitor_page(
+                    "https://example.com",
+                    selector="#price",
+                    condition="changed",
+                    check_interval_s=10,
+                    max_checks=3,
+                )
+
+        import json
+        data = json.loads(result)
+        assert data["triggered"] is True
+        assert data["final_value"] == "new"
+
+    def test_monitor_page_timeout_json(self):
+        """Returns triggered=False as JSON when max_checks reached."""
+        page = _make_mock_page(inner_text="same")
+        page.reload = AsyncMock()
+        context = _make_mock_context(page)
+        browser = _make_mock_browser(context)
+        pw = _make_mock_playwright(browser)
+
+        with patch("neo.tools.browser.async_playwright") as mock_apw:
+            mock_apw.return_value.start = AsyncMock(return_value=pw)
+            with patch("neo.tools.browser.asyncio.sleep", new_callable=AsyncMock):
+                result = monitor_page(
+                    "https://example.com",
+                    selector="#status",
+                    condition="changed",
+                    check_interval_s=10,
+                    max_checks=2,
+                )
+
+        import json
+        data = json.loads(result)
+        assert data["triggered"] is False
+        assert data["checks_performed"] == 2
 
 
 # ---------------------------------------------------------------------------

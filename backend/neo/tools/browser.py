@@ -7,6 +7,7 @@ scripts and the research pipeline.
 
 import asyncio
 import concurrent.futures
+import json as _json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -268,11 +269,15 @@ class BrowserController:
 # ---------------------------------------------------------------------------
 
 
-def _run_async_in_thread(coro_fn):
+def _run_async_in_thread(coro_fn, timeout: float = 60):
     """Run an async coroutine in a separate thread with its own event loop.
 
     This avoids "Cannot run the event loop while another one is running"
     when called from inside an already-running loop (e.g. _execute_sync).
+
+    Args:
+        coro_fn: Zero-argument callable returning a coroutine.
+        timeout: Max seconds to wait for the result (default 60).
     """
     def _thread_target():
         loop = asyncio.new_event_loop()
@@ -283,7 +288,7 @@ def _run_async_in_thread(coro_fn):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_thread_target)
-        return future.result(timeout=60)
+        return future.result(timeout=timeout)
 
 
 def browse_url(url: str, extract_selector: str = "body") -> str:
@@ -316,6 +321,70 @@ def take_screenshot(url: str, output_path: str = "") -> str:
             await controller.stop()
 
     return _run_async_in_thread(_run)
+
+
+def fill_form(url: str, fields: dict[str, str], submit_selector: str = "") -> str:
+    """Fill form fields on a page and optionally submit.
+
+    Sync wrapper for use by the orchestrator's tool dispatch.
+    """
+    async def _run() -> str:
+        controller = BrowserController()
+        try:
+            await controller.start()
+            return await controller.fill_form(
+                url, fields, submit_selector or None,
+            )
+        finally:
+            await controller.stop()
+
+    return _run_async_in_thread(_run)
+
+
+def download_file(url: str, target_dir: str = "") -> str:
+    """Download a file from a URL.
+
+    Sync wrapper for use by the orchestrator's tool dispatch.
+    """
+    async def _run() -> str:
+        controller = BrowserController()
+        try:
+            await controller.start()
+            return await controller.download_file(url, target_dir or None)
+        finally:
+            await controller.stop()
+
+    return _run_async_in_thread(_run)
+
+
+def monitor_page(
+    url: str,
+    selector: str,
+    condition: str = "changed",
+    reference_value: str = "",
+    check_interval_s: int = 30,
+    max_checks: int = 60,
+) -> str:
+    """Monitor a page element for a condition change.
+
+    Sync wrapper for use by the orchestrator's tool dispatch.
+    Returns a JSON string with the monitoring result.
+    """
+    async def _run() -> dict:
+        controller = BrowserController()
+        try:
+            await controller.start()
+            return await controller.monitor_page(
+                url, selector, condition, reference_value,
+                check_interval_s, max_checks,
+            )
+        finally:
+            await controller.stop()
+
+    # Monitoring can run for a long time: interval * max_checks + buffer
+    timeout = max(60, check_interval_s * max_checks + 120)
+    result = _run_async_in_thread(_run, timeout=timeout)
+    return _json.dumps(result)
 
 
 # ---------------------------------------------------------------------------

@@ -212,6 +212,75 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "fill_form",
+        "description": (
+            "Fill form fields on a web page and optionally submit. "
+            "Provide a mapping of CSS selectors to values."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL of the page with the form"},
+                "fields": {
+                    "type": "object",
+                    "description": "Mapping of CSS selectors to values (e.g. {\"#name\": \"John\", \"#email\": \"john@example.com\"})",
+                },
+                "submit_selector": {
+                    "type": "string",
+                    "description": "CSS selector for the submit button (optional — omit to fill without submitting)",
+                },
+            },
+            "required": ["url", "fields"],
+        },
+    },
+    {
+        "name": "download_file",
+        "description": "Download a file from a URL to the local filesystem.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL of the file to download"},
+                "target_dir": {
+                    "type": "string",
+                    "description": "Directory to save the file in (default: ~/Downloads)",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "monitor_page",
+        "description": (
+            "Monitor a web page element and trigger when a condition is met. "
+            "Useful for price tracking, stock availability, content changes, etc."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to monitor"},
+                "selector": {"type": "string", "description": "CSS selector for the element to watch"},
+                "condition": {
+                    "type": "string",
+                    "enum": ["changed", "contains", "not_contains", "appeared", "disappeared"],
+                    "description": "Condition to trigger on (default: changed)",
+                },
+                "reference_value": {
+                    "type": "string",
+                    "description": "Value to compare against (for contains/not_contains conditions)",
+                },
+                "check_interval_s": {
+                    "type": "integer",
+                    "description": "Seconds between checks (minimum 10, default 30)",
+                },
+                "max_checks": {
+                    "type": "integer",
+                    "description": "Maximum number of checks before giving up (default 60)",
+                },
+            },
+            "required": ["url", "selector"],
+        },
+    },
+    {
         "name": "list_calendar_events",
         "description": "List upcoming Google Calendar events.",
         "input_schema": {
@@ -367,6 +436,9 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "manage_file": ("neo.tools.files", "manage_file"),
     "browse_url": ("neo.tools.browser", "browse_url"),
     "take_screenshot": ("neo.tools.browser", "take_screenshot"),
+    "fill_form": ("neo.tools.browser", "fill_form"),
+    "download_file": ("neo.tools.browser", "download_file"),
+    "monitor_page": ("neo.tools.browser", "monitor_page"),
     "list_calendar_events": ("neo.tools.calendar", "list_events"),
     "create_calendar_event": ("neo.tools.calendar", "create_event"),
     "list_emails": ("neo.tools.gmail", "list_emails"),
