@@ -450,6 +450,51 @@ TOOL_DEFINITIONS = [
             "required": ["app_name"],
         },
     },
+    {
+        "name": "manage_mcp",
+        "description": (
+            "Manage MCP servers and plugins. Use this to list, connect, disconnect, add, or remove MCP servers. "
+            "Actions: 'list' (show all servers), 'connect' (start a server), 'disconnect' (stop a server), "
+            "'add' (add a new remote MCP server with URL and optional auth), 'remove' (remove a remote server)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "connect", "disconnect", "add", "remove"],
+                    "description": "Action to perform",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Server name (required for all actions except 'list')",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Server URL (required for 'add')",
+                },
+                "transport": {
+                    "type": "string",
+                    "enum": ["streamable_http", "sse"],
+                    "description": "Transport type (default: streamable_http)",
+                },
+                "auth_type": {
+                    "type": "string",
+                    "enum": ["bearer", "api_key", ""],
+                    "description": "Authentication type (empty for no auth)",
+                },
+                "token_env": {
+                    "type": "string",
+                    "description": "Environment variable name for the API key/token",
+                },
+                "token_value": {
+                    "type": "string",
+                    "description": "The actual API key or token value to save securely",
+                },
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -472,6 +517,7 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "create_skill": ("neo.skills.loader", "create_user_skill_from_tool"),
     "create_automation": ("neo.automations.tool", "create_automation_from_tool"),
     "open_app": ("neo.tools.open_app", "open_app"),
+    "manage_mcp": ("neo.tools.manage_mcp", "manage_mcp"),
 }
 
 
@@ -761,6 +807,16 @@ async def dispatch_tool(tool_name: str, tool_input: dict) -> str:
             return await _mcp_host.call_tool(plugin_name, plugin_tool, tool_input)
         except Exception as e:
             raise ToolError(f"Plugin tool '{tool_name}' failed: {e}") from e
+
+    # manage_mcp: async tool that needs the MCPHost instance injected
+    if tool_name == "manage_mcp":
+        if _mcp_host is None:
+            raise ToolError("MCP host is not available.")
+        try:
+            from neo.tools.manage_mcp import manage_mcp
+            return await manage_mcp(host=_mcp_host, **tool_input)
+        except Exception as e:
+            raise ToolError(f"Tool 'manage_mcp' failed: {e}") from e
 
     if tool_name not in TOOL_REGISTRY:
         raise ToolError(f"Unknown tool: {tool_name}")
