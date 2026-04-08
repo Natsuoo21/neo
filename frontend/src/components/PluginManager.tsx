@@ -17,7 +17,7 @@ import type {
   SetSecretResult,
 } from "@/types/rpc";
 
-type Tab = "connected" | "manage";
+type Tab = "plugins" | "mcp" | "manage";
 
 const STATUS_STYLES: Record<string, { bg: string; dot: string }> = {
   running: { bg: "bg-emerald-500/10 text-emerald-500", dot: "bg-emerald-500" },
@@ -41,7 +41,7 @@ export default function PluginManager() {
   const setPlugins = useNeoStore((s) => s.setPlugins);
   const connected = useNeoStore((s) => s.connected);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<Tab>("connected");
+  const [tab, setTab] = useState<Tab>("plugins");
   const [showAddRemote, setShowAddRemote] = useState(false);
 
   const loadPlugins = async () => {
@@ -97,40 +97,56 @@ export default function PluginManager() {
     }
   };
 
-  const connectedPlugins = plugins.filter((p) => isActive(p.status));
-  const connectedCount = connectedPlugins.length;
+  const localPlugins = plugins.filter((p) => p.transport === "stdio");
+  const remotePlugins = plugins.filter((p) => p.transport !== "stdio");
+  const connectedRemotes = remotePlugins.filter((p) => isActive(p.status));
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader icon={Puzzle} title="MCP Servers" subtitle={`(${plugins.length})`}>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadPlugins}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-card border border-border/60 hover:bg-accent/60 active:scale-95 transition-interaction disabled:opacity-40"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
-            Refresh
-          </button>
-        </div>
+      <PageHeader icon={Puzzle} title="Plugins & MCP" subtitle={`(${plugins.length})`}>
+        <button
+          onClick={loadPlugins}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-card border border-border/60 hover:bg-accent/60 active:scale-95 transition-interaction disabled:opacity-40"
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+          Refresh
+        </button>
       </PageHeader>
 
       {/* Tab Bar */}
       <div className="flex items-center gap-1 px-6 pt-3 pb-1 border-b border-border/60">
         <button
-          onClick={() => setTab("connected")}
+          onClick={() => setTab("plugins")}
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md transition-all",
-            tab === "connected"
+            tab === "plugins"
+              ? "bg-primary/10 text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
+          )}
+        >
+          <HardDrive className="w-3.5 h-3.5" />
+          Plugins
+          {localPlugins.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-muted text-muted-foreground">
+              {localPlugins.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("mcp")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md transition-all",
+            tab === "mcp"
               ? "bg-primary/10 text-primary border-b-2 border-primary"
               : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
           )}
         >
           <Wifi className="w-3.5 h-3.5" />
-          Connected
-          {connectedCount > 0 && (
+          MCP Connected
+          {connectedRemotes.length > 0 && (
             <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-500">
-              {connectedCount}
+              {connectedRemotes.length}
             </span>
           )}
         </button>
@@ -144,24 +160,35 @@ export default function PluginManager() {
           )}
         >
           <Settings2 className="w-3.5 h-3.5" />
-          Manage
-          <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-muted text-muted-foreground">
-            {plugins.length}
-          </span>
+          Manage MCP
+          {remotePlugins.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-muted text-muted-foreground">
+              {remotePlugins.length}
+            </span>
+          )}
         </button>
       </div>
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
-        {tab === "connected" ? (
-          <ConnectedTab
-            plugins={connectedPlugins}
+        {tab === "plugins" && (
+          <PluginsTab
+            plugins={localPlugins}
+            onStart={handleStart}
+            onStop={handleStop}
+            onRefreshTools={handleRefreshTools}
+          />
+        )}
+        {tab === "mcp" && (
+          <McpConnectedTab
+            plugins={connectedRemotes}
             onRefreshTools={handleRefreshTools}
             onStop={handleStop}
           />
-        ) : (
-          <ManageTab
-            plugins={plugins}
+        )}
+        {tab === "manage" && (
+          <ManageMcpTab
+            plugins={remotePlugins}
             showAddRemote={showAddRemote}
             setShowAddRemote={setShowAddRemote}
             onStart={handleStart}
@@ -177,10 +204,51 @@ export default function PluginManager() {
 }
 
 // ---------------------------------------------------------------------------
-// Connected Tab — active MCP servers only
+// Plugins Tab — local stdio plugins
 // ---------------------------------------------------------------------------
 
-function ConnectedTab({
+function PluginsTab({
+  plugins,
+  onStart,
+  onStop,
+  onRefreshTools,
+}: {
+  plugins: Plugin[];
+  onStart: (name: string) => Promise<void>;
+  onStop: (name: string) => Promise<void>;
+  onRefreshTools: (name: string) => Promise<void>;
+}) {
+  if (plugins.length === 0) {
+    return (
+      <EmptyState
+        icon={Puzzle}
+        title="No local plugins discovered"
+        description="Place MCP plugins in ~/.neo/plugins/ with a descriptor.json"
+      />
+    );
+  }
+
+  return (
+    <>
+      {plugins.map((plugin, i) => (
+        <PluginCard
+          key={plugin.name}
+          plugin={plugin}
+          index={i}
+          onStart={onStart}
+          onStop={onStop}
+          onRefreshTools={onRefreshTools}
+        />
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MCP Connected Tab — active remote MCP servers
+// ---------------------------------------------------------------------------
+
+function McpConnectedTab({
   plugins,
   onRefreshTools,
   onStop,
@@ -194,7 +262,7 @@ function ConnectedTab({
       <EmptyState
         icon={WifiOff}
         title="No MCP servers connected"
-        description="Go to the Manage tab to add and connect MCP servers"
+        description="Go to the Manage MCP tab to add and connect remote MCP servers"
       />
     );
   }
@@ -216,10 +284,10 @@ function ConnectedTab({
 }
 
 // ---------------------------------------------------------------------------
-// Manage Tab — all servers + add remote + API key config
+// Manage MCP Tab — all remote servers + add remote + API key config
 // ---------------------------------------------------------------------------
 
-function ManageTab({
+function ManageMcpTab({
   plugins,
   showAddRemote,
   setShowAddRemote,
@@ -263,9 +331,9 @@ function ManageTab({
 
       {plugins.length === 0 && !showAddRemote ? (
         <EmptyState
-          icon={Puzzle}
-          title="No MCP servers discovered"
-          description="Place MCP plugins in ~/.neo/plugins/ or add a remote server above"
+          icon={Globe}
+          title="No remote MCP servers"
+          description="Click 'Add Remote MCP Server' above to connect to external MCP servers"
         />
       ) : (
         plugins.map((plugin, i) => (
@@ -276,8 +344,8 @@ function ManageTab({
             onStart={onStart}
             onStop={onStop}
             onRefreshTools={onRefreshTools}
-            onRemoveRemote={plugin.transport !== "stdio" ? onRemoveRemote : undefined}
-            showApiKey={plugin.transport !== "stdio"}
+            onRemoveRemote={onRemoveRemote}
+            showApiKey
             onReload={onReload}
           />
         ))
@@ -287,7 +355,7 @@ function ManageTab({
 }
 
 // ---------------------------------------------------------------------------
-// Plugin Card — shared between both tabs
+// Plugin Card — shared between all tabs
 // ---------------------------------------------------------------------------
 
 function PluginCard({
@@ -365,7 +433,7 @@ function PluginCard({
             <button
               onClick={() => onStart(plugin.name)}
               className="p-1.5 rounded-md hover:bg-accent/60 text-emerald-500 active:scale-90 transition-interaction"
-              title="Connect"
+              title="Start"
             >
               <Play className="w-4 h-4" />
             </button>
@@ -374,7 +442,7 @@ function PluginCard({
             <button
               onClick={() => onStop(plugin.name)}
               className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive active:scale-90 transition-interaction"
-              title="Disconnect"
+              title="Stop"
             >
               <Square className="w-4 h-4" />
             </button>
@@ -411,14 +479,14 @@ function PluginCard({
         </div>
       )}
 
-      {/* API Key section (Manage tab only, remote servers only) */}
+      {/* API Key section (Manage MCP tab only) */}
       {showApiKey && !compact && <ApiKeySection plugin={plugin} onReload={onReload} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// API Key Section — inline in plugin cards on the Manage tab
+// API Key Section — inline in plugin cards on the Manage MCP tab
 // ---------------------------------------------------------------------------
 
 function ApiKeySection({
@@ -432,7 +500,7 @@ function ApiKeySection({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Derive the token_env name: if the plugin has auth config, use it; otherwise generate one
+  // Derive the token_env name from auth config or generate from plugin name
   const tokenEnv = (plugin as any).auth?.token_env || `${plugin.name.toUpperCase().replace(/-/g, "_")}_TOKEN`;
 
   const handleSaveKey = async () => {
