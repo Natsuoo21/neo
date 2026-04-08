@@ -3,6 +3,8 @@ import FloatingBar from "@/components/FloatingBar";
 import AppLayout from "@/components/AppLayout";
 import { checkBackendHealth } from "@/lib/backend";
 import { registerHotkeys } from "@/lib/hotkeys";
+import { notify } from "@/lib/notifications";
+import { connectStream } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
 
 type WindowLabel = "main" | "floating-bar";
@@ -49,6 +51,42 @@ function App() {
         console.warn("Hotkey handler error:", err);
       }
     });
+  }, [windowLabel]);
+
+  // SSE stream → desktop notifications (main window only to prevent duplicates)
+  useEffect(() => {
+    if (windowLabel !== "main") return;
+
+    const disconnect = connectStream(async (event, data) => {
+      const d = data as Record<string, unknown>;
+
+      if (event === "automation_status") {
+        const status = d.status as string | undefined;
+        const name = (d.name as string) || "Automation";
+        if (status === "success") {
+          await notify("Neo — Automation Complete", `${name} finished successfully.`);
+        } else if (status === "error") {
+          await notify("Neo — Automation Error", `${name} failed: ${d.error || "unknown error"}`);
+        } else if (status === "paused") {
+          await notify("Neo — Automation Paused", `${name} was paused.`);
+        }
+      } else if (event === "confirmation_request") {
+        await notify("Neo — Action Requires Confirmation", (d.message as string) || "Please review the pending action.");
+        // Show main window so user can interact with ConfirmationDialog
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          const win = getCurrentWindow();
+          await win.show();
+          await win.setFocus();
+        } catch {
+          // Not in Tauri
+        }
+      } else if (event === "suggestion") {
+        await notify("Neo — New Suggestion", (d.description as string) || "Neo has a suggestion for you.");
+      }
+    });
+
+    return disconnect;
   }, [windowLabel]);
 
   if (windowLabel === "floating-bar") {
