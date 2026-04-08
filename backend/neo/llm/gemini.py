@@ -43,10 +43,16 @@ class GeminiProvider(LLMProvider):
         return self._client
 
     async def complete(self, system: str, user: str) -> str:
-        """Send a completion request to Gemini."""
+        """Send a completion request to Gemini with Google Search grounding."""
         self._check_rate_limit()
         client = self._get_client()
-        config = types.GenerateContentConfig(system_instruction=system) if system else None
+        config_kwargs: dict[str, Any] = {}
+        if system:
+            config_kwargs["system_instruction"] = system
+        # Enable Google Search grounding for research queries
+        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+
+        config = types.GenerateContentConfig(**config_kwargs)
         response = await client.aio.models.generate_content(
             model=self._model_name,
             contents=user,
@@ -54,9 +60,11 @@ class GeminiProvider(LLMProvider):
         )
         self._track_usage(response)
         try:
-            if not response.text:
-                return ""
-            return response.text
+            text = response.text or ""
+            sources = self._extract_grounding_sources(response)
+            if sources:
+                text += sources
+            return text
         except ValueError:
             # Safety filter blocked the response — response.text raises ValueError
             logger.warning("Gemini response blocked by safety filter")
@@ -78,6 +86,8 @@ class GeminiProvider(LLMProvider):
         if system:
             config_kwargs["system_instruction"] = system
         if gemini_tools:
+            # Add Google Search grounding alongside function tools
+            gemini_tools.append(types.Tool(google_search=types.GoogleSearch()))
             config_kwargs["tools"] = gemini_tools
             # Nudge Gemini to prefer tool calls over text responses
             config_kwargs["tool_config"] = types.ToolConfig(
@@ -151,7 +161,33 @@ class GeminiProvider(LLMProvider):
         return [types.Tool(function_declarations=declarations)]
 
     @staticmethod
-    def _parse_response(response: Any) -> dict:
+    def _extract_grounding_sources(response: Any) -> str:
+        """Extract grounding source URLs from Gemini's response metadata."""
+        try:
+            candidate = response.candidates[0] if response.candidates else None
+            if not candidate:
+                return ""
+            metadata = getattr(candidate, "grounding_metadata", None)
+            if not metadata:
+                return ""
+            chunks = getattr(metadata, "grounding_chunks", None)
+            if not chunks:
+                return ""
+            sources = []
+            for chunk in chunks:
+                web = getattr(chunk, "web", None)
+                if web:
+                    title = getattr(web, "title", "") or ""
+                    uri = getattr(web, "uri", "") or ""
+                    if uri:
+                        sources.append(f"- [{title}]({uri})" if title else f"- {uri}")
+            if sources:
+                return "\n\n**Sources:**\n" + "\n".join(sources)
+        except (AttributeError, IndexError, TypeError):
+            logger.debug("Could not extract grounding sources")
+        return ""
+
+    def _parse_response(self, response: Any) -> dict:
         """Parse Gemini's response into our standard format."""
         if not response.candidates:
             return {"type": "text", "content": ""}
@@ -169,6 +205,9 @@ class GeminiProvider(LLMProvider):
                     "tool_input": dict(part.function_call.args) if part.function_call.args else {},
                 }
 
-        # Text-only response
+        # Text-only response — include grounding sources if available
         text = "".join(part.text for part in candidate.content.parts if hasattr(part, "text") and part.text)
+        sources = self._extract_grounding_sources(response)
+        if sources:
+            text += sources
         return {"type": "text", "content": text}

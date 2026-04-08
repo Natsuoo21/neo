@@ -16,7 +16,12 @@ def provider():
     return GeminiProvider(api_key="test-key", model="gemini-2.0-flash")
 
 
-def _mock_text_response(text: str, prompt_tokens: int = 10, candidate_tokens: int = 20):
+def _mock_text_response(
+    text: str,
+    prompt_tokens: int = 10,
+    candidate_tokens: int = 20,
+    grounding_chunks: list | None = None,
+):
     """Create a mock Gemini response with text content."""
     part = MagicMock()
     part.function_call = None
@@ -24,6 +29,10 @@ def _mock_text_response(text: str, prompt_tokens: int = 10, candidate_tokens: in
 
     candidate = MagicMock()
     candidate.content.parts = [part]
+    if grounding_chunks is not None:
+        candidate.grounding_metadata.grounding_chunks = grounding_chunks
+    else:
+        candidate.grounding_metadata = None
 
     usage = MagicMock()
     usage.prompt_token_count = prompt_tokens
@@ -192,17 +201,69 @@ class TestConvertTools:
 
 
 class TestParseResponse:
-    def test_parse_tool_call(self):
+    def test_parse_tool_call(self, provider):
         response = _mock_tool_response("manage_file", {"action": "copy", "source": "a.txt"})
-        result = GeminiProvider._parse_response(response)
+        result = provider._parse_response(response)
         assert result["type"] == "tool_use"
         assert result["tool_name"] == "manage_file"
         assert result["tool_input"]["action"] == "copy"
 
-    def test_parse_text(self):
+    def test_parse_text(self, provider):
         response = _mock_text_response("Here is the answer")
         # Ensure function_call is falsy for text parts
         response.candidates[0].content.parts[0].function_call = None
-        result = GeminiProvider._parse_response(response)
+        result = provider._parse_response(response)
         assert result["type"] == "text"
         assert result["content"] == "Here is the answer"
+
+    def test_parse_text_with_grounding_sources(self, provider):
+        chunk1 = MagicMock()
+        chunk1.web.title = "Example Article"
+        chunk1.web.uri = "https://example.com/article"
+        chunk2 = MagicMock()
+        chunk2.web.title = "Another Source"
+        chunk2.web.uri = "https://example.com/source"
+
+        response = _mock_text_response("The answer is 42", grounding_chunks=[chunk1, chunk2])
+        response.candidates[0].content.parts[0].function_call = None
+        result = provider._parse_response(response)
+        assert result["type"] == "text"
+        assert "The answer is 42" in result["content"]
+        assert "**Sources:**" in result["content"]
+        assert "https://example.com/article" in result["content"]
+        assert "https://example.com/source" in result["content"]
+
+
+class TestGroundingSources:
+    def test_extract_grounding_sources(self, provider):
+        chunk = MagicMock()
+        chunk.web.title = "Test Page"
+        chunk.web.uri = "https://test.com"
+
+        response = _mock_text_response("text", grounding_chunks=[chunk])
+        sources = provider._extract_grounding_sources(response)
+        assert "**Sources:**" in sources
+        assert "[Test Page](https://test.com)" in sources
+
+    def test_no_grounding_metadata(self, provider):
+        response = _mock_text_response("text")
+        sources = provider._extract_grounding_sources(response)
+        assert sources == ""
+
+    def test_complete_includes_sources(self, provider):
+        """complete() should append grounding sources to the text."""
+        chunk = MagicMock()
+        chunk.web.title = "Wiki"
+        chunk.web.uri = "https://wiki.com"
+        mock_response = _mock_text_response("Research result", grounding_chunks=[chunk])
+        client = _mock_client(mock_response)
+
+        with patch.object(provider, "_get_client", return_value=client):
+            import asyncio
+            result = asyncio.get_event_loop().run_until_complete(
+                provider.complete("sys", "search something")
+            )
+
+        assert "Research result" in result
+        assert "**Sources:**" in result
+        assert "https://wiki.com" in result
