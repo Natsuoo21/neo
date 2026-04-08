@@ -156,7 +156,11 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "create_note",
-        "description": "Create an Obsidian note (.md) with frontmatter and content.",
+        "description": (
+            "Create an Obsidian note (.md) with YAML frontmatter in the user's configured vault. "
+            "The vault path is set in the user profile — you do NOT need to connect or configure anything. "
+            "Just call this tool with a title and content to create a note."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -453,7 +457,9 @@ TOOL_DEFINITIONS = [
     {
         "name": "manage_mcp",
         "description": (
-            "Manage MCP servers and plugins. Use this to list, connect, disconnect, add, or remove MCP servers. "
+            "Manage MCP (Model Context Protocol) remote servers ONLY. "
+            "This is NOT for Obsidian, files, or any other tool — it is exclusively for MCP protocol servers "
+            "that expose tools via HTTP/SSE (e.g. GitHub MCP, Slack MCP, weather MCP). "
             "Actions: 'list' (show all servers), 'connect' (start a server), 'disconnect' (stop a server), "
             "'add' (add a new remote MCP server with URL and optional auth), 'remove' (remove a remote server)."
         ),
@@ -644,7 +650,12 @@ def build_system_prompt(
             f"- Downloads directory: ~/Downloads\n"
             f"- Obsidian vault: {tools.get('obsidian_vault', 'not configured')}\n"
             f"- You can save files to any user directory. Use output_path when the user specifies a location.\n"
-            f"- NEVER write to system directories (C:\\Windows, /etc, /usr, etc.) or sensitive dirs (.ssh, .gnupg)."
+            f"- NEVER write to system directories (C:\\Windows, /etc, /usr, etc.) or sensitive dirs (.ssh, .gnupg).\n"
+            f"\n## Tool Guidance\n"
+            f"- **Obsidian notes**: Use `create_note` or `append_to_note`. The vault is already configured — "
+            f"do NOT use `manage_mcp` for Obsidian. Obsidian is a note-taking app, not an MCP server.\n"
+            f"- **MCP servers**: Use `manage_mcp` ONLY for MCP protocol servers (remote APIs that expose tools via HTTP/SSE).\n"
+            f"- When the user mentions their vault, Obsidian, or notes, use the Obsidian tools, never manage_mcp."
         )
 
     # Inject project context
