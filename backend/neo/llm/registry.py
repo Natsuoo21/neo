@@ -56,13 +56,22 @@ async def check_ollama(registry: dict) -> None:
 
 
 def select_provider(registry: dict, tier: str) -> Any:
-    """Select provider for the given tier, falling back if unavailable."""
+    """Select provider for the given tier, falling back if unavailable.
+
+    Wraps around the fallback chain so every provider gets a chance.
+    E.g. if CLAUDE is requested but unavailable, tries LOCAL → GEMINI → OPENAI.
+    """
     if tier in registry:
         return registry[tier]
 
-    start = FALLBACK_CHAIN.index(tier) if tier in FALLBACK_CHAIN else 0
-    for fallback_tier in FALLBACK_CHAIN[start:]:
-        if fallback_tier in registry:
+    if tier in FALLBACK_CHAIN:
+        start = FALLBACK_CHAIN.index(tier) + 1
+    else:
+        start = 0
+    # Wrap around: try providers after the requested tier, then those before it
+    ordered = FALLBACK_CHAIN[start:] + FALLBACK_CHAIN[:start]
+    for fallback_tier in ordered:
+        if fallback_tier in registry and fallback_tier != tier:
             logger.info("Tier %s unavailable, falling back to %s", tier, fallback_tier)
             return registry[fallback_tier]
 
