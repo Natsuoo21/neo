@@ -63,6 +63,7 @@ _DESTRUCTIVE_TOOL_NAMES: frozenset[str] = frozenset({
     "reply_to",
     "fill_form",
     "submit_form",
+    "open_app",
 })
 
 

@@ -425,6 +425,31 @@ TOOL_DEFINITIONS = [
             "required": ["name", "trigger_type", "command"],
         },
     },
+    {
+        "name": "open_app",
+        "description": (
+            "Open an application on the user's computer. "
+            "Use common app names like 'obsidian', 'vscode', 'chrome', 'notepad', 'explorer', 'firefox', 'terminal'. "
+            "Also supports URI protocols like 'obsidian://open?vault=MyVault' or 'vscode://file/path'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_name": {
+                    "type": "string",
+                    "description": (
+                        "Application name, alias, or URI protocol "
+                        "(e.g., 'obsidian', 'chrome', 'vscode', 'obsidian://open?vault=MyVault')"
+                    ),
+                },
+                "args": {
+                    "type": "string",
+                    "description": "Optional arguments to pass to the application (e.g., a file path to open)",
+                },
+            },
+            "required": ["app_name"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -446,6 +471,7 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "send_email": ("neo.tools.gmail", "send_email"),
     "create_skill": ("neo.skills.loader", "create_user_skill_from_tool"),
     "create_automation": ("neo.automations.tool", "create_automation_from_tool"),
+    "open_app": ("neo.tools.open_app", "open_app"),
 }
 
 
