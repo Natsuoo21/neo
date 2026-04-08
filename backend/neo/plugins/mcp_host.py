@@ -490,6 +490,40 @@ class MCPHost:
         return tools
 
     # ------------------------------------------------------------------
+    # Auto-connect remotes on startup
+    # ------------------------------------------------------------------
+
+    async def auto_connect_remotes(self) -> int:
+        """Connect to all remote servers that have auth configured.
+
+        Called during server startup. Errors are logged per-server but
+        do not prevent other servers from connecting.
+
+        Returns the number of successfully connected servers.
+        """
+        connected_count = 0
+        for name, desc in list(self._descriptors.items()):
+            if desc.transport == "stdio":
+                continue
+            # Only auto-connect if auth is configured (has a token_env)
+            auth = desc.auth or {}
+            if not auth.get("token_env"):
+                continue
+            try:
+                ok = await self.start_plugin(name)
+                if ok:
+                    connected_count += 1
+                    logger.info("Auto-connected remote server: %s", name)
+                else:
+                    logger.warning("Auto-connect failed for '%s'", name)
+            except Exception:
+                logger.warning("Auto-connect error for '%s'", name, exc_info=True)
+
+        if connected_count:
+            logger.info("Auto-connected %d remote server(s)", connected_count)
+        return connected_count
+
+    # ------------------------------------------------------------------
     # Remote server management
     # ------------------------------------------------------------------
 

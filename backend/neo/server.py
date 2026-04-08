@@ -335,6 +335,8 @@ async def lifespan(app: FastAPI):
         _mcp_host.start_watching()
         set_mcp_host(_mcp_host)
         logger.info("MCP host started, %d plugins discovered", len(_mcp_host.list_plugins()))
+        # Auto-connect remote servers that have auth configured
+        await _mcp_host.auto_connect_remotes()
     except (ImportError, OSError, RuntimeError):
         logger.exception("Failed to start MCP host")
 
@@ -1305,6 +1307,31 @@ async def _rpc_plugin_test_connection(params: dict) -> dict:
         }
 
 
+async def _rpc_plugin_set_secret(params: dict) -> dict:
+    """Store an API key / token in ~/.neo/secrets.json."""
+    from neo.plugins.secrets import set_secret
+
+    name = params.get("name", "").strip()
+    value = params.get("value", "")
+
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if not value:
+        raise ValueError("Missing 'value' parameter")
+
+    set_secret(name, value)
+    return {"saved": True, "name": name}
+
+
+async def _rpc_plugin_get_remotes(_params: dict) -> dict:
+    """Return saved remote server configs (without actual token values)."""
+    from neo.plugins.remotes import load_remotes
+
+    path = _mcp_host._remotes_path if _mcp_host else None
+    remotes = load_remotes(path)
+    return {"remotes": remotes}
+
+
 # ---------------------------------------------------------------------------
 # Voice RPC methods
 # ---------------------------------------------------------------------------
@@ -1454,6 +1481,8 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.plugin.remove_remote": _rpc_plugin_remove_remote,
     "neo.plugin.refresh_tools": _rpc_plugin_refresh_tools,
     "neo.plugin.test_connection": _rpc_plugin_test_connection,
+    "neo.plugin.set_secret": _rpc_plugin_set_secret,
+    "neo.plugin.get_remotes": _rpc_plugin_get_remotes,
     "neo.voice.start": _rpc_voice_start,
     "neo.voice.stop": _rpc_voice_stop,
     "neo.voice.status": _rpc_voice_status,

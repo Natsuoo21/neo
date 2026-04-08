@@ -311,6 +311,26 @@ export interface TestConnectionResult {
   tools?: { name: string; description?: string }[];
 }
 
+export interface SetSecretResult {
+  saved: boolean;
+  name: string;
+}
+
+export interface RemoteConfig {
+  name: string;
+  url: string;
+  transport: string;
+  description?: string;
+  auth?: {
+    type: "bearer" | "api_key" | "header";
+    token_env?: string;
+  };
+}
+
+export interface GetRemotesResult {
+  remotes: RemoteConfig[];
+}
+
 // --- Suggestion types ---
 
 export interface Suggestion {

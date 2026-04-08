@@ -1,16 +1,23 @@
 import { useEffect, useState } from "react";
-import { Puzzle, Play, Square, RefreshCw, Globe, HardDrive, Plus, Loader2, X } from "lucide-react";
+import {
+  Puzzle, Play, Square, RefreshCw, Globe, HardDrive,
+  Plus, Loader2, X, Key, Wifi, WifiOff, Settings2,
+} from "lucide-react";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
 import { cn } from "@/lib/utils";
 import PageHeader from "./ui/PageHeader";
 import EmptyState from "./ui/EmptyState";
 import type {
+  Plugin,
   PluginListResult,
   PluginInstallResult,
   AddRemoteResult,
   TestConnectionResult,
+  SetSecretResult,
 } from "@/types/rpc";
+
+type Tab = "connected" | "manage";
 
 const STATUS_STYLES: Record<string, { bg: string; dot: string }> = {
   running: { bg: "bg-emerald-500/10 text-emerald-500", dot: "bg-emerald-500" },
@@ -34,6 +41,7 @@ export default function PluginManager() {
   const setPlugins = useNeoStore((s) => s.setPlugins);
   const connected = useNeoStore((s) => s.connected);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<Tab>("connected");
   const [showAddRemote, setShowAddRemote] = useState(false);
 
   const loadPlugins = async () => {
@@ -89,17 +97,13 @@ export default function PluginManager() {
     }
   };
 
+  const connectedPlugins = plugins.filter((p) => isActive(p.status));
+  const connectedCount = connectedPlugins.length;
+
   return (
     <div className="flex flex-col h-full">
-      <PageHeader icon={Puzzle} title="Plugins" subtitle={`(${plugins.length})`}>
+      <PageHeader icon={Puzzle} title="MCP Servers" subtitle={`(${plugins.length})`}>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddRemote(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-interaction"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Remote
-          </button>
           <button
             onClick={loadPlugins}
             disabled={loading}
@@ -111,126 +115,378 @@ export default function PluginManager() {
         </div>
       </PageHeader>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-3">
-        {showAddRemote && (
-          <AddRemoteForm
-            onClose={() => setShowAddRemote(false)}
-            onAdded={() => {
-              setShowAddRemote(false);
-              loadPlugins();
-            }}
-          />
-        )}
+      {/* Tab Bar */}
+      <div className="flex items-center gap-1 px-6 pt-3 pb-1 border-b border-border/60">
+        <button
+          onClick={() => setTab("connected")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md transition-all",
+            tab === "connected"
+              ? "bg-primary/10 text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
+          )}
+        >
+          <Wifi className="w-3.5 h-3.5" />
+          Connected
+          {connectedCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-500">
+              {connectedCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("manage")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md transition-all",
+            tab === "manage"
+              ? "bg-primary/10 text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
+          )}
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+          Manage
+          <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-muted text-muted-foreground">
+            {plugins.length}
+          </span>
+        </button>
+      </div>
 
-        {plugins.length === 0 && !showAddRemote ? (
-          <EmptyState
-            icon={Puzzle}
-            title="No plugins discovered"
-            description="Place MCP plugins in ~/.neo/plugins/ or add a remote server"
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        {tab === "connected" ? (
+          <ConnectedTab
+            plugins={connectedPlugins}
+            onRefreshTools={handleRefreshTools}
+            onStop={handleStop}
           />
         ) : (
-          plugins.map((plugin, i) => {
-            const style = getStatusStyle(plugin.status);
-            const active = isActive(plugin.status);
-            const isRemote = plugin.transport !== "stdio";
-
-            return (
-              <div
-                key={plugin.name}
-                className="rounded-[10px] border border-border/60 bg-card p-4 space-y-3 shadow-card animate-fade-in-up"
-                style={{ animationDelay: `${i * 30}ms` }}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      {isRemote ? (
-                        <Globe className="w-3.5 h-3.5 text-muted-foreground" />
-                      ) : (
-                        <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
-                      )}
-                      <h3 className="font-medium text-[13px]">{plugin.name}</h3>
-                      <span className="text-[10px] text-muted-foreground font-mono">v{plugin.version}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">{plugin.transport}</span>
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-sm)]",
-                          style.bg,
-                        )}
-                      >
-                        <span className={cn("w-1.5 h-1.5 rounded-full", style.dot)} />
-                        {plugin.status}
-                      </span>
-                    </div>
-                    {plugin.description && (
-                      <p className="text-xs text-muted-foreground mt-1">{plugin.description}</p>
-                    )}
-                    {plugin.url && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate max-w-[300px]">
-                        {plugin.url}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {active && (
-                      <button
-                        onClick={() => handleRefreshTools(plugin.name)}
-                        className="p-1.5 rounded-md hover:bg-accent/60 text-muted-foreground active:scale-90 transition-interaction"
-                        title="Refresh tools"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {!active ? (
-                      <button
-                        onClick={() => handleStart(plugin.name)}
-                        className="p-1.5 rounded-md hover:bg-accent/60 text-emerald-500 active:scale-90 transition-interaction"
-                        title="Start plugin"
-                      >
-                        <Play className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleStop(plugin.name)}
-                        className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive active:scale-90 transition-interaction"
-                        title="Stop plugin"
-                      >
-                        <Square className="w-4 h-4" />
-                      </button>
-                    )}
-                    {isRemote && (
-                      <button
-                        onClick={() => handleRemoveRemote(plugin.name)}
-                        className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive active:scale-90 transition-interaction"
-                        title="Remove remote server"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {plugin.tools.length > 0 && (
-                  <div className="border-t border-border/60 pt-2">
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
-                      Tools
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {plugin.tools.map((tool) => (
-                        <span
-                          key={tool.name}
-                          className="text-[11px] px-2 py-0.5 rounded-[var(--radius-sm)] bg-primary/5 text-primary border border-primary/10 font-mono"
-                          title={tool.description}
-                        >
-                          {tool.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+          <ManageTab
+            plugins={plugins}
+            showAddRemote={showAddRemote}
+            setShowAddRemote={setShowAddRemote}
+            onStart={handleStart}
+            onStop={handleStop}
+            onRefreshTools={handleRefreshTools}
+            onRemoveRemote={handleRemoveRemote}
+            onReload={loadPlugins}
+          />
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connected Tab — active MCP servers only
+// ---------------------------------------------------------------------------
+
+function ConnectedTab({
+  plugins,
+  onRefreshTools,
+  onStop,
+}: {
+  plugins: Plugin[];
+  onRefreshTools: (name: string) => Promise<void>;
+  onStop: (name: string) => Promise<void>;
+}) {
+  if (plugins.length === 0) {
+    return (
+      <EmptyState
+        icon={WifiOff}
+        title="No MCP servers connected"
+        description="Go to the Manage tab to add and connect MCP servers"
+      />
+    );
+  }
+
+  return (
+    <>
+      {plugins.map((plugin, i) => (
+        <PluginCard
+          key={plugin.name}
+          plugin={plugin}
+          index={i}
+          onRefreshTools={onRefreshTools}
+          onStop={onStop}
+          compact
+        />
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manage Tab — all servers + add remote + API key config
+// ---------------------------------------------------------------------------
+
+function ManageTab({
+  plugins,
+  showAddRemote,
+  setShowAddRemote,
+  onStart,
+  onStop,
+  onRefreshTools,
+  onRemoveRemote,
+  onReload,
+}: {
+  plugins: Plugin[];
+  showAddRemote: boolean;
+  setShowAddRemote: (v: boolean) => void;
+  onStart: (name: string) => Promise<void>;
+  onStop: (name: string) => Promise<void>;
+  onRefreshTools: (name: string) => Promise<void>;
+  onRemoveRemote: (name: string) => Promise<void>;
+  onReload: () => Promise<void>;
+}) {
+  return (
+    <>
+      {/* Add Remote button */}
+      {!showAddRemote && (
+        <button
+          onClick={() => setShowAddRemote(true)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 text-xs font-medium rounded-[10px] border border-dashed border-border/60 hover:border-primary/40 hover:bg-primary/5 text-muted-foreground hover:text-primary transition-all"
+        >
+          <Plus className="w-4 h-4" />
+          Add Remote MCP Server
+        </button>
+      )}
+
+      {showAddRemote && (
+        <AddRemoteForm
+          onClose={() => setShowAddRemote(false)}
+          onAdded={() => {
+            setShowAddRemote(false);
+            onReload();
+          }}
+        />
+      )}
+
+      {plugins.length === 0 && !showAddRemote ? (
+        <EmptyState
+          icon={Puzzle}
+          title="No MCP servers discovered"
+          description="Place MCP plugins in ~/.neo/plugins/ or add a remote server above"
+        />
+      ) : (
+        plugins.map((plugin, i) => (
+          <PluginCard
+            key={plugin.name}
+            plugin={plugin}
+            index={i}
+            onStart={onStart}
+            onStop={onStop}
+            onRefreshTools={onRefreshTools}
+            onRemoveRemote={plugin.transport !== "stdio" ? onRemoveRemote : undefined}
+            showApiKey={plugin.transport !== "stdio"}
+            onReload={onReload}
+          />
+        ))
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Plugin Card — shared between both tabs
+// ---------------------------------------------------------------------------
+
+function PluginCard({
+  plugin,
+  index,
+  compact,
+  onStart,
+  onStop,
+  onRefreshTools,
+  onRemoveRemote,
+  showApiKey,
+  onReload,
+}: {
+  plugin: Plugin;
+  index: number;
+  compact?: boolean;
+  onStart?: (name: string) => Promise<void>;
+  onStop?: (name: string) => Promise<void>;
+  onRefreshTools?: (name: string) => Promise<void>;
+  onRemoveRemote?: (name: string) => Promise<void>;
+  showApiKey?: boolean;
+  onReload?: () => Promise<void>;
+}) {
+  const style = getStatusStyle(plugin.status);
+  const active = isActive(plugin.status);
+  const isRemote = plugin.transport !== "stdio";
+
+  return (
+    <div
+      className="rounded-[10px] border border-border/60 bg-card p-4 space-y-3 shadow-card animate-fade-in-up"
+      style={{ animationDelay: `${index * 30}ms` }}
+    >
+      {/* Header row */}
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isRemote ? (
+              <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            ) : (
+              <HardDrive className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            )}
+            <h3 className="font-medium text-[13px]">{plugin.name}</h3>
+            <span className="text-[10px] text-muted-foreground font-mono">v{plugin.version}</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{plugin.transport}</span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-sm)]",
+                style.bg,
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", style.dot)} />
+              {plugin.status}
+            </span>
+          </div>
+          {plugin.description && (
+            <p className="text-xs text-muted-foreground mt-1">{plugin.description}</p>
+          )}
+          {plugin.url && (
+            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate max-w-[400px]">
+              {plugin.url}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {active && onRefreshTools && (
+            <button
+              onClick={() => onRefreshTools(plugin.name)}
+              className="p-1.5 rounded-md hover:bg-accent/60 text-muted-foreground active:scale-90 transition-interaction"
+              title="Refresh tools"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {!active && onStart && (
+            <button
+              onClick={() => onStart(plugin.name)}
+              className="p-1.5 rounded-md hover:bg-accent/60 text-emerald-500 active:scale-90 transition-interaction"
+              title="Connect"
+            >
+              <Play className="w-4 h-4" />
+            </button>
+          )}
+          {active && onStop && (
+            <button
+              onClick={() => onStop(plugin.name)}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive active:scale-90 transition-interaction"
+              title="Disconnect"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          )}
+          {onRemoveRemote && (
+            <button
+              onClick={() => onRemoveRemote(plugin.name)}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive active:scale-90 transition-interaction"
+              title="Remove remote server"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tools */}
+      {plugin.tools.length > 0 && (
+        <div className="border-t border-border/60 pt-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1">
+            Tools ({plugin.tools.length})
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {plugin.tools.map((tool) => (
+              <span
+                key={tool.name}
+                className="text-[11px] px-2 py-0.5 rounded-[var(--radius-sm)] bg-primary/5 text-primary border border-primary/10 font-mono"
+                title={tool.description}
+              >
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* API Key section (Manage tab only, remote servers only) */}
+      {showApiKey && !compact && <ApiKeySection plugin={plugin} onReload={onReload} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// API Key Section — inline in plugin cards on the Manage tab
+// ---------------------------------------------------------------------------
+
+function ApiKeySection({
+  plugin,
+  onReload,
+}: {
+  plugin: Plugin;
+  onReload?: () => Promise<void>;
+}) {
+  const [tokenValue, setTokenValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Derive the token_env name: if the plugin has auth config, use it; otherwise generate one
+  const tokenEnv = (plugin as any).auth?.token_env || `${plugin.name.toUpperCase().replace(/-/g, "_")}_TOKEN`;
+
+  const handleSaveKey = async () => {
+    if (!tokenValue.trim()) return;
+    setSaving(true);
+    try {
+      await rpc<SetSecretResult>("neo.plugin.set_secret", {
+        name: tokenEnv,
+        value: tokenValue.trim(),
+      });
+      setSaved(true);
+      setTokenValue("");
+      setTimeout(() => setSaved(false), 2500);
+      if (onReload) await onReload();
+    } catch (err) {
+      console.error("Failed to save secret:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border/60 pt-2">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-1.5 flex items-center gap-1">
+        <Key className="w-3 h-3" />
+        API Key / Token
+      </p>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground font-mono shrink-0">{tokenEnv}:</span>
+        <input
+          type="password"
+          placeholder="Paste API key or token..."
+          value={tokenValue}
+          onChange={(e) => setTokenValue(e.target.value)}
+          className="flex-1 px-2 py-1 text-xs rounded-md bg-background border border-border/60 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono"
+        />
+        <button
+          onClick={handleSaveKey}
+          disabled={!tokenValue.trim() || saving}
+          className={cn(
+            "flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md active:scale-95 transition-interaction disabled:opacity-40",
+            saved
+              ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+              : "bg-primary text-primary-foreground hover:bg-primary/90",
+          )}
+        >
+          {saving ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : saved ? (
+            "Saved!"
+          ) : (
+            "Save"
+          )}
+        </button>
       </div>
     </div>
   );
@@ -246,6 +502,7 @@ function AddRemoteForm({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const [transport, setTransport] = useState<"streamable_http" | "sse">("streamable_http");
   const [authType, setAuthType] = useState<"" | "bearer" | "api_key">("");
   const [tokenEnv, setTokenEnv] = useState("");
+  const [tokenValue, setTokenValue] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -254,6 +511,13 @@ function AddRemoteForm({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     setTesting(true);
     setTestResult(null);
     try {
+      // If user provided a token value, save it first so the test can use it
+      if (authType && tokenValue.trim() && tokenEnv.trim()) {
+        await rpc<SetSecretResult>("neo.plugin.set_secret", {
+          name: tokenEnv.trim(),
+          value: tokenValue.trim(),
+        });
+      }
       const res = await rpc<TestConnectionResult>("neo.plugin.test_connection", {
         url,
         transport,
@@ -270,6 +534,13 @@ function AddRemoteForm({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      // Save token if provided
+      if (authType && tokenValue.trim() && tokenEnv.trim()) {
+        await rpc<SetSecretResult>("neo.plugin.set_secret", {
+          name: tokenEnv.trim(),
+          value: tokenValue.trim(),
+        });
+      }
       await rpc<AddRemoteResult>("neo.plugin.add_remote", {
         name,
         url,
@@ -283,6 +554,11 @@ function AddRemoteForm({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       setSubmitting(false);
     }
   };
+
+  // Auto-generate token_env from name
+  const autoTokenEnv = name
+    ? `${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_TOKEN`
+    : "";
 
   const inputClass =
     "w-full px-3 py-1.5 text-xs rounded-md bg-background border border-border/60 focus:outline-none focus:ring-1 focus:ring-primary/50";
@@ -334,13 +610,23 @@ function AddRemoteForm({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           </select>
         </div>
         {authType && (
-          <input
-            type="text"
-            placeholder="Environment variable name (e.g., GITHUB_TOKEN)"
-            value={tokenEnv}
-            onChange={(e) => setTokenEnv(e.target.value)}
-            className={inputClass}
-          />
+          <>
+            <input
+              type="text"
+              placeholder={`Env var name (e.g., ${autoTokenEnv || "GITHUB_TOKEN"})`}
+              value={tokenEnv}
+              onChange={(e) => setTokenEnv(e.target.value)}
+              onFocus={() => { if (!tokenEnv && autoTokenEnv) setTokenEnv(autoTokenEnv); }}
+              className={inputClass}
+            />
+            <input
+              type="password"
+              placeholder="Paste API key / token value (saved securely)"
+              value={tokenValue}
+              onChange={(e) => setTokenValue(e.target.value)}
+              className={inputClass}
+            />
+          </>
         )}
       </div>
 

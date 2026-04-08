@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -367,6 +367,86 @@ class TestMCPHostRemoteManagement:
         assert await host.remove_remote("s1") is True
         data = json.loads(remotes_path.read_text())
         assert len(data) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_connect_remotes_with_auth(self, tmp_path: Path):
+        """Remote servers with auth.token_env should auto-connect."""
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {
+                "name": "s1",
+                "transport": "streamable_http",
+                "url": "https://example.com/mcp",
+                "auth": {"type": "bearer", "token_env": "S1_TOKEN"},
+            },
+        ]))
+
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=remotes_path,
+        )
+        host.discover()
+
+        with patch.object(MCPConnection, "connect", new_callable=AsyncMock):
+            count = await host.auto_connect_remotes()
+            assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_auto_connect_skips_no_auth(self, tmp_path: Path):
+        """Remote servers without auth.token_env should not auto-connect."""
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {"name": "s2", "transport": "sse", "url": "https://example.com"},
+        ]))
+
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=remotes_path,
+        )
+        host.discover()
+
+        count = await host.auto_connect_remotes()
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_connect_handles_errors(self, tmp_path: Path):
+        """Auto-connect should not fail entirely if one server errors."""
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {
+                "name": "good",
+                "transport": "streamable_http",
+                "url": "https://good.com/mcp",
+                "auth": {"type": "bearer", "token_env": "GOOD_TOKEN"},
+            },
+            {
+                "name": "bad",
+                "transport": "streamable_http",
+                "url": "https://bad.com/mcp",
+                "auth": {"type": "bearer", "token_env": "BAD_TOKEN"},
+            },
+        ]))
+
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=remotes_path,
+        )
+        host.discover()
+
+        call_count = 0
+
+        async def mock_connect(self):
+            nonlocal call_count
+            call_count += 1
+            if self.descriptor.name == "bad":
+                raise ConnectionError("connection refused")
+            self._status = "connected"
+
+        with patch.object(MCPConnection, "connect", mock_connect):
+            count = await host.auto_connect_remotes()
+            # "good" connects, "bad" fails — count should be 1
+            assert count == 1
+            assert call_count == 2
 
 
 # ---------------------------------------------------------------------------
