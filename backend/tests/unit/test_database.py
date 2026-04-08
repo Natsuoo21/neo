@@ -317,6 +317,61 @@ class TestAutomations:
         assert row["retry_count"] == 2
 
 
+class TestCreateAutomationFromTool:
+    """Tests for the LLM tool wrapper that creates automations via chat."""
+
+    def test_creates_startup_automation(self, conn, monkeypatch):
+        from neo.automations.tool import create_automation_from_tool
+
+        monkeypatch.setenv("NEO_DB_PATH", conn.execute("PRAGMA database_list").fetchone()[2])
+
+        result = create_automation_from_tool(
+            name="Morning briefing",
+            trigger_type="startup",
+            command="open Obsidian and show my daily note",
+        )
+
+        assert "Morning briefing" in result
+        assert "when Neo starts" in result
+
+        # Verify DB entry
+        row = conn.execute(
+            "SELECT * FROM automations WHERE name = ?", ("Morning briefing",)
+        ).fetchone()
+        assert row is not None
+        assert row["trigger_type"] == "startup"
+        assert row["command"] == "open Obsidian and show my daily note"
+
+    def test_creates_schedule_automation(self, conn, monkeypatch):
+        from neo.automations.tool import create_automation_from_tool
+
+        monkeypatch.setenv("NEO_DB_PATH", conn.execute("PRAGMA database_list").fetchone()[2])
+
+        result = create_automation_from_tool(
+            name="Weekly report",
+            trigger_type="schedule",
+            command="create weekly report",
+            trigger_config={"cron": "0 9 * * 1"},
+        )
+
+        assert "Weekly report" in result
+        assert "cron: 0 9 * * 1" in result
+
+    def test_invalid_trigger_type(self, conn, monkeypatch):
+        from neo.automations.tool import create_automation_from_tool
+
+        monkeypatch.setenv("NEO_DB_PATH", conn.execute("PRAGMA database_list").fetchone()[2])
+
+        result = create_automation_from_tool(
+            name="Bad trigger",
+            trigger_type="invalid",
+            command="do something",
+        )
+
+        assert "Error" in result
+        assert "invalid" in result
+
+
 # ============================================
 # CONVERSATIONS CRUD
 # ============================================

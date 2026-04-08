@@ -311,6 +311,51 @@ TOOL_DEFINITIONS = [
             "required": ["name", "description", "instructions"],
         },
     },
+    {
+        "name": "create_automation",
+        "description": (
+            "Create a new automation that runs a command automatically based on a trigger. "
+            "Trigger types: 'schedule' (cron-based, e.g. every morning), "
+            "'startup' (runs when Neo starts), "
+            "'file_event' (runs when a file changes), "
+            "'pattern' (runs when the user types a matching command). "
+            "The command is the text that Neo will execute as if the user typed it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the automation (e.g., 'Morning briefing')",
+                },
+                "trigger_type": {
+                    "type": "string",
+                    "enum": ["schedule", "startup", "file_event", "pattern"],
+                    "description": "What triggers this automation",
+                },
+                "command": {
+                    "type": "string",
+                    "description": (
+                        "The command Neo will execute when triggered "
+                        "(e.g., 'open Obsidian and show my daily note')"
+                    ),
+                },
+                "trigger_config": {
+                    "type": "object",
+                    "description": (
+                        "Trigger-specific configuration. "
+                        "For 'schedule': {\"cron\": \"0 9 * * *\"} (cron expression). "
+                        "For 'file_event': {\"path\": \"/path/to/watch\", "
+                        "\"pattern\": \"*.md\", "
+                        "\"event_types\": [\"created\", \"modified\"]}. "
+                        "For 'startup': {} (no config needed). "
+                        "For 'pattern': {\"match\": \"keyword to match\"}."
+                    ),
+                },
+            },
+            "required": ["name", "trigger_type", "command"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -328,6 +373,7 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "read_email": ("neo.tools.gmail", "read_email"),
     "send_email": ("neo.tools.gmail", "send_email"),
     "create_skill": ("neo.skills.loader", "create_user_skill_from_tool"),
+    "create_automation": ("neo.automations.tool", "create_automation_from_tool"),
 }
 
 
