@@ -654,7 +654,7 @@ async def process(
         llm_response = await provider.complete_with_tools(
             system=system_prompt,
             user=command,
-            tools=TOOL_DEFINITIONS,
+            tools=get_all_tool_definitions(),
             messages=truncated_messages,
         )
 
@@ -758,3 +758,29 @@ def set_mcp_host(host: "MCPHost | None") -> None:
     """Register the MCP host for plugin tool dispatch."""
     global _mcp_host
     _mcp_host = host
+
+
+def get_all_tool_definitions() -> list[dict]:
+    """Return built-in tool definitions plus tools from running MCP plugins.
+
+    Plugin tools are converted to the same format as TOOL_DEFINITIONS with
+    names prefixed as ``plugin::{plugin_name}::{tool_name}``.
+    """
+    tools = list(TOOL_DEFINITIONS)
+
+    if _mcp_host is None:
+        return tools
+
+    for plugin in _mcp_host.list_plugins():
+        if plugin.get("status") != "running":
+            continue
+
+        plugin_name = plugin["name"]
+        for tool in _mcp_host.get_plugin_tools(plugin_name):
+            tools.append({
+                "name": f"plugin::{plugin_name}::{tool['name']}",
+                "description": tool.get("description", ""),
+                "input_schema": tool.get("inputSchema", {"type": "object", "properties": {}}),
+            })
+
+    return tools

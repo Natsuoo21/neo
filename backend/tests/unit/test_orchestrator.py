@@ -15,7 +15,9 @@ from neo.orchestrator import (
     ToolError,
     build_system_prompt,
     dispatch_tool,
+    get_all_tool_definitions,
     process,
+    set_mcp_host,
 )
 
 
@@ -191,6 +193,88 @@ class TestProcess:
         provider = MockProvider()
         await process("create a note", provider, conn)
         assert len(provider.last_tools) == len(TOOL_DEFINITIONS)
+
+
+# ============================================
+# PLUGIN TOOL INJECTION
+# ============================================
+
+
+class TestPluginToolInjection:
+    def test_no_mcp_host_returns_builtin_only(self):
+        set_mcp_host(None)
+        tools = get_all_tool_definitions()
+        assert tools == TOOL_DEFINITIONS
+
+    def test_running_plugin_tools_injected(self):
+        from unittest.mock import MagicMock
+
+        mock_host = MagicMock()
+        mock_host.list_plugins.return_value = [
+            {"name": "openhands", "status": "running"},
+        ]
+        mock_host.get_plugin_tools.return_value = [
+            {
+                "name": "execute_code",
+                "description": "Run code in a sandbox",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"code": {"type": "string"}},
+                    "required": ["code"],
+                },
+            },
+        ]
+
+        set_mcp_host(mock_host)
+        try:
+            tools = get_all_tool_definitions()
+            plugin_tools = [t for t in tools if t["name"].startswith("plugin::")]
+            assert len(plugin_tools) == 1
+            assert plugin_tools[0]["name"] == "plugin::openhands::execute_code"
+            assert plugin_tools[0]["description"] == "Run code in a sandbox"
+            assert plugin_tools[0]["input_schema"]["required"] == ["code"]
+        finally:
+            set_mcp_host(None)
+
+    def test_stopped_plugin_tools_excluded(self):
+        from unittest.mock import MagicMock
+
+        mock_host = MagicMock()
+        mock_host.list_plugins.return_value = [
+            {"name": "weather", "status": "stopped"},
+        ]
+
+        set_mcp_host(mock_host)
+        try:
+            tools = get_all_tool_definitions()
+            plugin_tools = [t for t in tools if t["name"].startswith("plugin::")]
+            assert len(plugin_tools) == 0
+            mock_host.get_plugin_tools.assert_not_called()
+        finally:
+            set_mcp_host(None)
+
+    @pytest.mark.asyncio
+    async def test_process_sends_plugin_tools_to_provider(self, conn):
+        from unittest.mock import MagicMock
+
+        mock_host = MagicMock()
+        mock_host.list_plugins.return_value = [
+            {"name": "test_plugin", "status": "running"},
+        ]
+        mock_host.get_plugin_tools.return_value = [
+            {"name": "do_thing", "description": "Does a thing", "inputSchema": {"type": "object", "properties": {}}},
+        ]
+
+        set_mcp_host(mock_host)
+        try:
+            provider = MockProvider()
+            await process("hello", provider, conn)
+            # Provider should receive more tools than just TOOL_DEFINITIONS
+            assert len(provider.last_tools) == len(TOOL_DEFINITIONS) + 1
+            names = [t["name"] for t in provider.last_tools]
+            assert "plugin::test_plugin::do_thing" in names
+        finally:
+            set_mcp_host(None)
 
 
 # ============================================
