@@ -232,6 +232,78 @@ class TestObsidian:
         # On actual Windows, don't convert
         assert _convert_windows_path(r"G:\vault") == r"G:\vault"
 
+    def test_wsl_to_windows(self):
+        from neo.tools.obsidian import _wsl_to_windows
+        assert _wsl_to_windows("/mnt/g/Meu Drive/notes") == r"G:\Meu Drive\notes"
+        assert _wsl_to_windows("/mnt/c/Users/andre") == r"C:\Users\andre"
+        # Non-matching paths returned as-is
+        assert _wsl_to_windows("/home/user/vault") == "/home/user/vault"
+
+    def test_needs_windows_io_unmounted(self, monkeypatch):
+        from neo.tools.obsidian import _needs_windows_io
+        monkeypatch.setattr("os.path.isdir", lambda p: p == "/mnt/c")
+        assert _needs_windows_io("/mnt/g/Meu Drive/vault") is True
+        assert _needs_windows_io("/mnt/c/Users/vault") is False
+        assert _needs_windows_io("/home/user/vault") is False
+
+    def test_write_file_powershell_fallback(self, monkeypatch):
+        """When drive is not mounted, _write_file should call PowerShell."""
+        from unittest.mock import MagicMock, patch
+
+        from neo.tools.obsidian import _write_file
+
+        monkeypatch.setattr("neo.tools.obsidian._needs_windows_io", lambda p: True)
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("neo.tools.obsidian.subprocess.run", return_value=mock_result) as mock_run:
+            _write_file("/mnt/g/Vault/Note.md", "Hello")
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert call_args[0][0][0] == "powershell.exe"
+            assert call_args[1]["input"] == "Hello"
+
+    def test_append_file_powershell_fallback(self, monkeypatch):
+        """When drive is not mounted, _append_file should call PowerShell."""
+        from unittest.mock import MagicMock, patch
+
+        from neo.tools.obsidian import _append_file
+
+        monkeypatch.setattr("neo.tools.obsidian._needs_windows_io", lambda p: True)
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("neo.tools.obsidian.subprocess.run", return_value=mock_result) as mock_run:
+            _append_file("/mnt/g/Vault/Note.md", "Extra content")
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert call_args[0][0][0] == "powershell.exe"
+            assert "Extra content" in call_args[1]["input"]
+
+    def test_write_file_powershell_error(self, monkeypatch):
+        """PowerShell failure should raise OSError."""
+        from unittest.mock import MagicMock, patch
+
+        from neo.tools.obsidian import _write_file
+
+        monkeypatch.setattr("neo.tools.obsidian._needs_windows_io", lambda p: True)
+        mock_result = MagicMock(returncode=1, stderr="Access denied")
+        with patch("neo.tools.obsidian.subprocess.run", return_value=mock_result):
+            with pytest.raises(OSError, match="PowerShell write failed"):
+                _write_file("/mnt/g/Vault/Note.md", "Hello")
+
+    def test_create_note_windows_io(self, monkeypatch):
+        """create_note should use PowerShell when drive isn't mounted."""
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setattr("neo.tools.obsidian._get_default_vault", lambda: "/mnt/g/Vault")
+        monkeypatch.setattr("neo.tools.obsidian._needs_windows_io", lambda p: True)
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("neo.tools.obsidian.subprocess.run", return_value=mock_result) as mock_run:
+            path = create_note(title="Test", content="Hello")
+            assert path == "/mnt/g/Vault/Test.md"
+            mock_run.assert_called_once()
+            # Content should contain the frontmatter and body
+            written = mock_run.call_args[1]["input"]
+            assert "title: Test" in written
+            assert "Hello" in written
+
 
 # ============================================
 # FILE SYSTEM

@@ -1,10 +1,19 @@
-"""Obsidian tool — Create and manage .md notes in Obsidian vault."""
+"""Obsidian tool — Create and manage .md notes in Obsidian vault.
 
+Supports WSL: Windows paths (``G:\\Meu Drive\\vault``) are converted to
+``/mnt/g/Meu Drive/vault``.  If the drive letter is not mounted in WSL
+(common with Google Drive virtual drives), file I/O falls back to
+PowerShell interop so the file lands on the Windows filesystem.
+"""
+
+import logging
 import os
 import platform
 import re
+import subprocess
 from datetime import datetime, timezone
 
+logger = logging.getLogger(__name__)
 
 # Module-level vault override — set by the orchestrator from user profile
 _vault_override: str | None = None
@@ -40,6 +49,89 @@ def _convert_windows_path(path: str) -> str:
     drive = match.group(1).lower()
     rest = match.group(2).replace("\\", "/")
     return f"/mnt/{drive}/{rest}"
+
+
+def _wsl_to_windows(path: str) -> str:
+    """Convert ``/mnt/g/Foo/Bar`` back to ``G:\\Foo\\Bar`` for PowerShell.
+
+    Returns *path* unchanged if it does not match ``/mnt/<letter>/…``.
+    """
+    match = re.match(r"^/mnt/([a-z])/(.*)$", path)
+    if not match:
+        return path
+    drive = match.group(1).upper()
+    rest = match.group(2).replace("/", "\\")
+    return f"{drive}:\\{rest}"
+
+
+def _needs_windows_io(path: str) -> bool:
+    """Return True when *path* is on a WSL ``/mnt/<letter>/`` mount that
+    does not actually exist (e.g. Google Drive virtual drive ``G:``).
+    """
+    match = re.match(r"^/mnt/([a-z])/", path)
+    if not match:
+        return False
+    mount_point = f"/mnt/{match.group(1)}"
+    return not os.path.isdir(mount_point)
+
+
+def _write_file(path: str, content: str) -> None:
+    """Write *content* to *path*, using PowerShell when the drive is not
+    mounted in WSL (e.g. Google Drive ``G:``).
+    """
+    if _needs_windows_io(path):
+        win_path = _wsl_to_windows(path)
+        win_dir = _wsl_to_windows(os.path.dirname(path))
+        # Escape single quotes for PowerShell string literals
+        esc_dir = win_dir.replace("'", "''")
+        esc_path = win_path.replace("'", "''")
+        script = (
+            f"$null = New-Item -ItemType Directory -Force -Path '{esc_dir}';"
+            f"$c = [Console]::In.ReadToEnd();"
+            f"[System.IO.File]::WriteAllText('{esc_path}', $c, "
+            f"[System.Text.Encoding]::UTF8)"
+        )
+        logger.info("Writing via PowerShell to %s", win_path)
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            input=content,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise OSError(
+                f"PowerShell write failed ({win_path}): {result.stderr.strip()}"
+            )
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+
+def _append_file(path: str, content: str) -> None:
+    """Append *content* to *path*, using PowerShell when needed."""
+    if _needs_windows_io(path):
+        win_path = _wsl_to_windows(path)
+        esc_path = win_path.replace("'", "''")
+        script = (
+            f"$c = [Console]::In.ReadToEnd();"
+            f"[System.IO.File]::AppendAllText('{esc_path}', $c, "
+            f"[System.Text.Encoding]::UTF8)"
+        )
+        logger.info("Appending via PowerShell to %s", win_path)
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            input=f"\n{content}\n",
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise OSError(
+                f"PowerShell append failed ({win_path}): {result.stderr.strip()}"
+            )
+    else:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"\n{content}\n")
 
 
 def _get_default_vault() -> str:
@@ -113,10 +205,7 @@ def create_note(
 
     file_path = _resolve_vault_path(title)
     _validate_vault_path(file_path)
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(full_content)
+    _write_file(file_path, full_content)
 
     return file_path
 
@@ -128,9 +217,7 @@ def append_to_note(path: str, content: str) -> str:
     Returns the file path.
     """
     _validate_vault_path(path)
-
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(f"\n{content}\n")
+    _append_file(path, content)
     return path
 
 
@@ -151,7 +238,13 @@ def _validate_vault_path(path: str) -> None:
     Raises ValueError if path is outside the vault.
     """
     vault = _get_default_vault()
-    real_path = os.path.realpath(path)
-    real_vault = os.path.realpath(vault)
-    if not real_path.startswith(real_vault + os.sep) and real_path != real_vault:
+    # When using Windows IO the path may not exist on disk yet,
+    # so we normalise instead of calling realpath (which would fail).
+    if _needs_windows_io(path):
+        norm_path = os.path.normpath(path)
+        norm_vault = os.path.normpath(vault)
+    else:
+        norm_path = os.path.realpath(path)
+        norm_vault = os.path.realpath(vault)
+    if not norm_path.startswith(norm_vault + os.sep) and norm_path != norm_vault:
         raise ValueError(f"Path is outside the vault directory: {path}")
