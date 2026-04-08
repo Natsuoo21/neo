@@ -50,6 +50,41 @@ _ALLOWED_COMMANDS = frozenset({
 _PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 
+def _resolve_stdio_env(descriptor_env: dict[str, str]) -> dict[str, str]:
+    """Build the environment for a stdio subprocess.
+
+    1. Start with the parent process environment (so PATH, HOME, etc. are available).
+    2. Overlay explicit env vars from the plugin descriptor.
+    3. Resolve ``$SECRET_NAME`` references from ``~/.neo/secrets.json``.
+    """
+    import os
+
+    env = os.environ.copy()
+
+    if not descriptor_env:
+        return env
+
+    try:
+        from neo.plugins.secrets import get_secret
+    except ImportError:
+        get_secret = None  # type: ignore[assignment]
+
+    for key, value in descriptor_env.items():
+        if isinstance(value, str) and value.startswith("$"):
+            # Resolve from secrets.json, then fall back to existing env
+            secret_name = value[1:]
+            resolved = None
+            if get_secret is not None:
+                resolved = get_secret(secret_name)
+            if not resolved:
+                resolved = os.environ.get(secret_name, "")
+            env[key] = resolved
+        else:
+            env[key] = value
+
+    return env
+
+
 # ---------------------------------------------------------------------------
 # Plugin Descriptor
 # ---------------------------------------------------------------------------
@@ -131,10 +166,11 @@ class MCPConnection:
             if transport_type == TransportType.STDIO:
                 if not self.descriptor.command:
                     raise ValueError("stdio plugins require a 'command' field")
+                resolved_env = _resolve_stdio_env(self.descriptor.env)
                 stdio_config = StdioConfig(
                     command=self.descriptor.command,
                     args=self.descriptor.args,
-                    env=self.descriptor.env,
+                    env=resolved_env,
                     cwd=str(self.descriptor.path.parent) if self.descriptor.path else None,
                 )
                 self._session = await connect(

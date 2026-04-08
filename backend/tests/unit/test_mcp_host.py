@@ -12,6 +12,7 @@ from neo.plugins.mcp_host import (
     MCPConnection,
     MCPHost,
     PluginDescriptor,
+    _resolve_stdio_env,
 )
 
 # ---------------------------------------------------------------------------
@@ -582,3 +583,43 @@ class TestMCPHostWatching:
 
         await host.shutdown()
         assert host._observer is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_stdio_env
+# ---------------------------------------------------------------------------
+
+
+class TestResolveStdioEnv:
+    def test_empty_env_returns_parent(self):
+        result = _resolve_stdio_env({})
+        import os
+        assert "PATH" in result  # parent env inherited
+        assert result["PATH"] == os.environ["PATH"]
+
+    def test_literal_values_set(self):
+        result = _resolve_stdio_env({"MY_VAR": "hello"})
+        assert result["MY_VAR"] == "hello"
+        assert "PATH" in result  # parent env still present
+
+    def test_secret_reference_resolved(self, monkeypatch):
+        monkeypatch.setattr("neo.plugins.secrets.get_secret", lambda name: "secret-value-123")
+        result = _resolve_stdio_env({"API_KEY": "$MY_SECRET"})
+        assert result["API_KEY"] == "secret-value-123"
+
+    def test_secret_falls_back_to_env(self, monkeypatch):
+        monkeypatch.setattr("neo.plugins.secrets.get_secret", lambda name: None)
+        monkeypatch.setenv("FALLBACK_KEY", "from-env")
+        result = _resolve_stdio_env({"API_KEY": "$FALLBACK_KEY"})
+        assert result["API_KEY"] == "from-env"
+
+    def test_secret_not_found_returns_empty(self, monkeypatch):
+        monkeypatch.setattr("neo.plugins.secrets.get_secret", lambda name: None)
+        result = _resolve_stdio_env({"API_KEY": "$NONEXISTENT"})
+        assert result["API_KEY"] == ""
+
+    def test_mixed_literal_and_secret(self, monkeypatch):
+        monkeypatch.setattr("neo.plugins.secrets.get_secret", lambda name: "resolved")
+        result = _resolve_stdio_env({"LITERAL": "value", "SECRET": "$KEY"})
+        assert result["LITERAL"] == "value"
+        assert result["SECRET"] == "resolved"
