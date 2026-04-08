@@ -201,6 +201,37 @@ class TestObsidian:
         assert "Initial" in text
         assert "Added later" in text
 
+    def test_vault_override_used(self, tmp_dir, monkeypatch):
+        from neo.tools.obsidian import set_vault_path
+        set_vault_path(tmp_dir)
+        try:
+            path = create_note(title="Override Test", content="Works")
+            assert path.startswith(tmp_dir)
+            assert os.path.exists(path)
+        finally:
+            set_vault_path(None)
+
+    def test_convert_windows_path_drive(self, monkeypatch):
+        from neo.tools.obsidian import _convert_windows_path
+        monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Linux")
+        assert _convert_windows_path(r"G:\Meu Drive\notes") == "/mnt/g/Meu Drive/notes"
+        assert _convert_windows_path(r"C:\Users\andre\vault") == "/mnt/c/Users/andre/vault"
+
+    def test_convert_windows_path_forward_slash(self, monkeypatch):
+        from neo.tools.obsidian import _convert_windows_path
+        monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Linux")
+        assert _convert_windows_path("G:/Meu Drive/notes") == "/mnt/g/Meu Drive/notes"
+
+    def test_convert_windows_path_noop_linux(self):
+        from neo.tools.obsidian import _convert_windows_path
+        assert _convert_windows_path("/home/user/vault") == "/home/user/vault"
+
+    def test_convert_windows_path_noop_on_windows(self, monkeypatch):
+        from neo.tools.obsidian import _convert_windows_path
+        monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Windows")
+        # On actual Windows, don't convert
+        assert _convert_windows_path(r"G:\vault") == r"G:\vault"
+
 
 # ============================================
 # FILE SYSTEM

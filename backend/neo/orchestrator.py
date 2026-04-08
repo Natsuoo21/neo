@@ -521,6 +521,25 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
 }
 
 
+def _inject_tool_paths(conn) -> None:
+    """Set tool-specific paths from the user profile before dispatch.
+
+    Reads ``tool_paths`` from the user profile and injects them into the
+    relevant tool modules so they use the correct configured paths.
+    """
+    profile = get_user_profile(conn)
+    if not profile:
+        return
+
+    tools = json.loads(profile.get("tool_paths", "{}") or "{}")
+
+    # Obsidian vault path
+    vault = tools.get("obsidian_vault", "")
+    if vault:
+        from neo.tools.obsidian import set_vault_path
+        set_vault_path(vault)
+
+
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token."""
     return len(text) // 4
@@ -734,6 +753,9 @@ async def process(
             tool_name = llm_response["tool_name"]
             tool_input = llm_response["tool_input"]
             result["tool_used"] = tool_name
+
+            # Inject user profile paths into tools that need them
+            _inject_tool_paths(conn)
 
             # Execute the tool
             tool_output = await dispatch_tool(tool_name, tool_input)

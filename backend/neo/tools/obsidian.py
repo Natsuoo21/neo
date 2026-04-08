@@ -1,12 +1,68 @@
 """Obsidian tool — Create and manage .md notes in Obsidian vault."""
 
 import os
+import platform
+import re
 from datetime import datetime, timezone
 
 
+# Module-level vault override — set by the orchestrator from user profile
+_vault_override: str | None = None
+
+
+def set_vault_path(path: str | None) -> None:
+    """Set the vault path from user profile (called by orchestrator)."""
+    global _vault_override
+    _vault_override = path
+
+
+def _convert_windows_path(path: str) -> str:
+    """Convert a Windows path to WSL/Linux path if running under WSL.
+
+    Examples:
+        ``G:\\Meu Drive\\notes`` → ``/mnt/g/Meu Drive/notes``
+        ``C:\\Users\\andre\\vault`` → ``/mnt/c/Users/andre/vault``
+
+    If not a Windows-style path or not on WSL, returns unchanged.
+    """
+    if not path:
+        return path
+
+    # Detect Windows drive letter pattern: X:\ or X:/
+    match = re.match(r"^([A-Za-z]):[/\\](.*)$", path)
+    if not match:
+        return path
+
+    # Only convert if we're on Linux (WSL)
+    if platform.system() != "Linux":
+        return path
+
+    drive = match.group(1).lower()
+    rest = match.group(2).replace("\\", "/")
+    return f"/mnt/{drive}/{rest}"
+
+
 def _get_default_vault() -> str:
-    """Return the default vault path, evaluated at call time."""
-    return os.path.expanduser(os.environ.get("OBSIDIAN_VAULT_PATH", "~/Documents/Neo/vault"))
+    """Return the vault path, checking multiple sources.
+
+    Priority:
+    1. Module-level override (set from user profile by orchestrator)
+    2. OBSIDIAN_VAULT_PATH environment variable
+    3. Default ~/Documents/Neo/vault
+    """
+    # 1. Module override from user profile
+    if _vault_override:
+        converted = _convert_windows_path(_vault_override)
+        return os.path.expanduser(converted)
+
+    # 2. Environment variable
+    env_path = os.environ.get("OBSIDIAN_VAULT_PATH", "")
+    if env_path:
+        converted = _convert_windows_path(env_path)
+        return os.path.expanduser(converted)
+
+    # 3. Default
+    return os.path.expanduser("~/Documents/Neo/vault")
 
 
 def create_note(
