@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from neo.llm.registry import build_provider_registry, check_ollama, select_provider
+from neo.llm.registry import build_provider_registry, check_ollama, get_fallback_providers, select_provider
 from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
     add_message,
@@ -286,19 +286,31 @@ async def _async_main() -> None:
                 messages = [{"role": h["role"], "content": h["content"]} for h in history]
                 messages.append({"role": "user", "content": clean_command})
 
-                result = await process(
-                    clean_command,
-                    provider,
-                    conn,
-                    skill_content,
-                    skill_name=skill_name,
-                    routed_tier=tier,
-                    messages=messages,
-                )
+                # Try primary provider, then fallback on errors
+                providers_to_try = [(tier, provider)]
+                providers_to_try.extend(get_fallback_providers(registry, tier))
+
+                result = None
+                for attempt_tier, attempt_provider in providers_to_try:
+                    result = await process(
+                        clean_command,
+                        attempt_provider,
+                        conn,
+                        skill_content,
+                        skill_name=skill_name,
+                        routed_tier=attempt_tier,
+                        messages=messages,
+                    )
+                    if result["status"] == "success":
+                        break
+                    logger.warning(
+                        "Provider %s failed, trying next fallback...",
+                        attempt_provider.name(),
+                    )
 
                 # Store conversation messages (skip errors to avoid polluting history)
                 add_message(conn, session_id, "user", clean_command)
-                if result["status"] == "success":
+                if result and result["status"] == "success":
                     add_message(
                         conn,
                         session_id,
@@ -308,6 +320,9 @@ async def _async_main() -> None:
                     )
 
             # Display result
+            if result is None:
+                print("\n  [error] All providers failed.\n")
+                continue
             if result["status"] == "success":
                 print(f"\n  {result['message']}\n")
                 if result["tool_used"]:

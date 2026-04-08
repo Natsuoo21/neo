@@ -543,7 +543,7 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
             )
 
         add_message(conn, session_id, "user", user_command)
-        if result["status"] == "success":
+        if result and result["status"] == "success":
             add_message(
                 conn,
                 session_id,
@@ -551,6 +551,17 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
                 result["message"],
                 model_used=result["model_used"],
             )
+
+    if result is None:
+        result = {
+            "status": "error",
+            "message": "All providers failed. Check your API keys and try again.",
+            "tool_used": None,
+            "tool_result": None,
+            "model_used": "",
+            "routed_tier": tier,
+            "duration_ms": 0,
+        }
 
     return {
         "status": result["status"],
