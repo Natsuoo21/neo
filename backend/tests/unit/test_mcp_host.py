@@ -370,3 +370,69 @@ class TestSecurityValidation:
         assert "PLUGIN_API_KEY" in safe_env
         assert "PATH" not in safe_env
         assert "HOME" not in safe_env
+
+
+# ---------------------------------------------------------------------------
+# Hot-reload watcher tests
+# ---------------------------------------------------------------------------
+
+
+class TestMCPHostWatching:
+    def test_start_stop_watching(self, tmp_path: Path):
+        host = MCPHost(plugin_dir=tmp_path)
+        host.start_watching()
+        assert host._observer is not None
+        assert host._observer.is_alive()
+
+        host.stop_watching()
+        assert host._observer is None
+
+    def test_start_watching_idempotent(self, tmp_path: Path):
+        host = MCPHost(plugin_dir=tmp_path)
+        host.start_watching()
+        observer1 = host._observer
+        host.start_watching()  # Should not create a second observer
+        assert host._observer is observer1
+        host.stop_watching()
+
+    def test_stop_watching_when_not_started(self, tmp_path: Path):
+        host = MCPHost(plugin_dir=tmp_path)
+        host.stop_watching()  # Should not raise
+
+    def test_rediscover_finds_new_plugin(self, tmp_path: Path):
+        host = MCPHost(plugin_dir=tmp_path)
+        host.discover()
+        assert len(host.list_plugins()) == 0
+
+        # Add a new plugin directory
+        plugin_dir = tmp_path / "newplugin"
+        plugin_dir.mkdir()
+        desc = {"name": "newplugin", "command": "python", "args": ["server.py"]}
+        (plugin_dir / "descriptor.json").write_text(json.dumps(desc))
+
+        host._rediscover()
+        plugins = host.list_plugins()
+        assert len(plugins) == 1
+        assert plugins[0]["name"] == "newplugin"
+
+    def test_rediscover_skips_already_known(self, tmp_path: Path):
+        plugin_dir = tmp_path / "existing"
+        plugin_dir.mkdir()
+        desc = {"name": "existing", "command": "python"}
+        (plugin_dir / "descriptor.json").write_text(json.dumps(desc))
+
+        host = MCPHost(plugin_dir=tmp_path)
+        host.discover()
+        assert len(host.list_plugins()) == 1
+
+        # Re-discover should not duplicate
+        host._rediscover()
+        assert len(host.list_plugins()) == 1
+
+    def test_shutdown_stops_watcher(self, tmp_path: Path):
+        host = MCPHost(plugin_dir=tmp_path)
+        host.start_watching()
+        assert host._observer is not None
+
+        host.shutdown()
+        assert host._observer is None

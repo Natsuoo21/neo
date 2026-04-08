@@ -332,6 +332,7 @@ async def lifespan(app: FastAPI):
     try:
         _mcp_host = MCPHost()
         _mcp_host.discover()
+        _mcp_host.start_watching()
         set_mcp_host(_mcp_host)
         logger.info("MCP host started, %d plugins discovered", len(_mcp_host.list_plugins()))
     except (ImportError, OSError, RuntimeError):

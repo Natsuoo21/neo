@@ -22,6 +22,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
 logger = logging.getLogger(__name__)
 
 # Default plugin directory
@@ -237,6 +240,24 @@ class PluginProcess:
             pass
 
 
+class _PluginDirHandler(FileSystemEventHandler):
+    """Watchdog handler that triggers plugin re-discovery on new files."""
+
+    def __init__(self, host: "MCPHost") -> None:
+        super().__init__()
+        self._host = host
+
+    def on_created(self, event):  # type: ignore[override]
+        if event.is_directory:
+            return
+        if Path(event.src_path).name == "descriptor.json":
+            logger.info("New plugin descriptor detected: %s", event.src_path)
+            try:
+                self._host._rediscover()
+            except Exception:
+                logger.exception("Error during plugin re-discovery")
+
+
 class MCPHost:
     """Central plugin host — discovers, starts, stops, and routes tool calls.
 
@@ -254,6 +275,7 @@ class MCPHost:
         self._descriptors: dict[str, PluginDescriptor] = {}
         self._processes: dict[str, PluginProcess] = {}
         self._lock = threading.Lock()
+        self._observer: Observer | None = None
 
     @property
     def plugin_dir(self) -> Path:
@@ -386,8 +408,73 @@ class MCPHost:
                         tools.append(f"plugin::{name}::{tool_name}")
         return tools
 
+    # ------------------------------------------------------------------
+    # Hot-reload: file watcher for plugin directory
+    # ------------------------------------------------------------------
+
+    def start_watching(self) -> None:
+        """Start watching the plugin directory for new plugins."""
+        if self._observer is not None:
+            return
+
+        self._plugin_dir.mkdir(parents=True, exist_ok=True)
+
+        handler = _PluginDirHandler(self)
+        self._observer = Observer()
+        self._observer.schedule(handler, str(self._plugin_dir), recursive=True)
+        self._observer.daemon = True
+        self._observer.start()
+        logger.info("Plugin directory watcher started: %s", self._plugin_dir)
+
+    def stop_watching(self) -> None:
+        """Stop the plugin directory watcher."""
+        if self._observer is None:
+            return
+
+        self._observer.stop()
+        self._observer.join(timeout=5)
+        self._observer = None
+        logger.info("Plugin directory watcher stopped")
+
+    def _rediscover(self) -> None:
+        """Re-scan plugin directory and register any new plugins."""
+        self._plugin_dir.mkdir(parents=True, exist_ok=True)
+
+        for entry in self._plugin_dir.iterdir():
+            if not entry.is_dir():
+                continue
+
+            descriptor_path = entry / "descriptor.json"
+            if not descriptor_path.exists():
+                continue
+
+            # Skip already-known plugins
+            try:
+                data = json.loads(descriptor_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+
+            name = data.get("name", "")
+            if not name or name in self._descriptors:
+                continue
+
+            if "command" not in data:
+                continue
+
+            if not _PLUGIN_NAME_RE.match(name):
+                continue
+
+            base_cmd = Path(data["command"]).name
+            if base_cmd not in _ALLOWED_COMMANDS:
+                continue
+
+            desc = PluginDescriptor(descriptor_path, data)
+            self._descriptors[desc.name] = desc
+            logger.info("Hot-reload: discovered new plugin %s v%s", desc.name, desc.version)
+
     def shutdown(self) -> None:
-        """Stop all running plugins."""
+        """Stop all running plugins and the file watcher."""
+        self.stop_watching()
         for name in list(self._processes.keys()):
             self.stop_plugin(name)
         logger.info("All plugins shut down")
