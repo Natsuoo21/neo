@@ -32,7 +32,7 @@ numpy>=1.26.0
 webrtcvad>=2.0.10
 
 # MCP (Phase 4)
-mcp>=1.0.0
+mcp>=1.8.0
 
 # HTTP server (Tauri IPC)
 fastapi>=0.115.0

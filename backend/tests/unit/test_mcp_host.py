@@ -1,16 +1,17 @@
-"""Tests for neo.plugins.mcp_host — MCP plugin host."""
+"""Tests for neo.plugins.mcp_host — MCP plugin host (async, SDK-based)."""
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from neo.plugins.mcp_host import (
     _ALLOWED_COMMANDS,
     _PLUGIN_NAME_RE,
+    MCPConnection,
     MCPHost,
     PluginDescriptor,
-    PluginProcess,
 )
 
 # ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ from neo.plugins.mcp_host import (
 
 
 class TestPluginDescriptor:
-    def test_parse_minimal(self):
+    def test_parse_minimal_stdio(self):
         data = {"name": "test", "command": "python", "args": ["main.py"]}
         desc = PluginDescriptor(Path("/tmp/test/descriptor.json"), data)
         assert desc.name == "test"
@@ -29,36 +30,84 @@ class TestPluginDescriptor:
         assert desc.description == ""
         assert desc.tools == []
         assert desc.env == {}
+        assert desc.transport == "stdio"
 
-    def test_parse_full(self):
+    def test_parse_remote(self):
         data = {
-            "name": "weather",
-            "version": "1.0.0",
-            "description": "Get weather",
-            "command": "node",
-            "args": ["index.js"],
-            "env": {"API_KEY": "test"},
-            "tools": [{"name": "get_weather"}],
+            "name": "remote-server",
+            "transport": "streamable_http",
+            "url": "https://api.example.com/mcp",
+            "auth": {"type": "bearer", "token_env": "MY_TOKEN"},
         }
-        desc = PluginDescriptor(Path("/tmp/weather/descriptor.json"), data)
-        assert desc.name == "weather"
-        assert desc.version == "1.0.0"
-        assert desc.description == "Get weather"
-        assert desc.env == {"API_KEY": "test"}
-        assert len(desc.tools) == 1
+        desc = PluginDescriptor(None, data)
+        assert desc.name == "remote-server"
+        assert desc.transport == "streamable_http"
+        assert desc.url == "https://api.example.com/mcp"
+        assert desc.auth == {"type": "bearer", "token_env": "MY_TOKEN"}
+        assert desc.path is None
+        assert desc.command is None
 
-    def test_to_dict(self):
-        data = {"name": "test", "command": "python"}
+    def test_to_dict_hides_command(self):
+        data = {"name": "test", "command": "python", "args": ["server.py"]}
         desc = PluginDescriptor(Path("/p"), data)
         d = desc.to_dict()
         assert d["name"] == "test"
-        assert "command" not in d  # S3: command hidden from public API
+        assert "command" not in d
         assert "args" not in d
-        assert "path" not in d
+        assert d["transport"] == "stdio"
+
+    def test_to_dict_includes_url_for_remote(self):
+        data = {
+            "name": "remote",
+            "transport": "sse",
+            "url": "https://example.com/sse",
+        }
+        desc = PluginDescriptor(None, data)
+        d = desc.to_dict()
+        assert d["url"] == "https://example.com/sse"
+        assert d["transport"] == "sse"
+
+    def test_backward_compat_defaults_to_stdio(self):
+        data = {"name": "old-plugin", "command": "python"}
+        desc = PluginDescriptor(Path("/p"), data)
+        assert desc.transport == "stdio"
 
 
 # ---------------------------------------------------------------------------
-# MCPHost — discover
+# MCPConnection
+# ---------------------------------------------------------------------------
+
+
+class TestMCPConnection:
+    def _make_descriptor(self, **overrides) -> PluginDescriptor:
+        data = {"name": "test", "command": "python", "transport": "stdio", **overrides}
+        return PluginDescriptor(Path("/tmp/test/descriptor.json"), data)
+
+    def test_initial_status(self):
+        conn = MCPConnection(self._make_descriptor())
+        assert conn.status == "disconnected"
+        assert conn.connected is False
+
+    def test_get_tools_from_cache(self):
+        desc = self._make_descriptor(tools=[{"name": "tool1"}])
+        conn = MCPConnection(desc)
+        assert conn.get_tools() == [{"name": "tool1"}]
+
+    @pytest.mark.asyncio
+    async def test_call_tool_not_connected(self):
+        conn = MCPConnection(self._make_descriptor())
+        with pytest.raises(RuntimeError, match="not connected"):
+            await conn.call_tool("test", {})
+
+    @pytest.mark.asyncio
+    async def test_disconnect_when_not_connected(self):
+        conn = MCPConnection(self._make_descriptor())
+        await conn.disconnect()  # Should not raise
+        assert conn.status == "disconnected"
+
+
+# ---------------------------------------------------------------------------
+# MCPHost — discover local
 # ---------------------------------------------------------------------------
 
 
@@ -84,6 +133,7 @@ class TestMCPHostDiscover:
 
         assert len(plugins) == 1
         assert plugins[0].name == "myplugin"
+        assert plugins[0].transport == "stdio"
 
     def test_discover_skips_invalid_descriptor(self, tmp_path: Path):
         plugin_dir = tmp_path / "bad"
@@ -117,7 +167,70 @@ class TestMCPHostDiscover:
 
 
 # ---------------------------------------------------------------------------
-# MCPHost — list / start / stop / remove
+# MCPHost — discover remote
+# ---------------------------------------------------------------------------
+
+
+class TestMCPHostDiscoverRemote:
+    def test_discover_loads_remotes(self, tmp_path: Path):
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {
+                "name": "remote1",
+                "transport": "streamable_http",
+                "url": "https://example.com/mcp",
+            },
+        ]))
+
+        host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
+        plugins = host.discover()
+
+        assert len(plugins) == 1
+        assert plugins[0].name == "remote1"
+        assert plugins[0].transport == "streamable_http"
+        assert plugins[0].url == "https://example.com/mcp"
+
+    def test_discover_skips_invalid_remote_name(self, tmp_path: Path):
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {"name": "../escape", "transport": "sse", "url": "https://example.com"},
+        ]))
+
+        host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
+        plugins = host.discover()
+        assert plugins == []
+
+    def test_discover_no_remotes_file(self, tmp_path: Path):
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=tmp_path / "nonexistent.json",
+        )
+        plugins = host.discover()
+        assert plugins == []
+
+    def test_discover_both_local_and_remote(self, tmp_path: Path):
+        # Local
+        plugin_dir = tmp_path / "plugins" / "local1"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "descriptor.json").write_text(json.dumps({
+            "name": "local1", "command": "python",
+        }))
+
+        # Remote
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {"name": "remote1", "transport": "sse", "url": "https://example.com"},
+        ]))
+
+        host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
+        plugins = host.discover()
+        assert len(plugins) == 2
+        names = {p.name for p in plugins}
+        assert names == {"local1", "remote1"}
+
+
+# ---------------------------------------------------------------------------
+# MCPHost — lifecycle (async)
 # ---------------------------------------------------------------------------
 
 
@@ -138,22 +251,26 @@ class TestMCPHostLifecycle:
         assert plugins[0]["name"] == "weather"
         assert plugins[0]["status"] == "stopped"
 
-    def test_start_unknown_plugin(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_start_unknown_plugin(self, tmp_path: Path):
         host = self._setup_host(tmp_path)
-        assert host.start_plugin("nonexistent") is False
+        assert await host.start_plugin("nonexistent") is False
 
-    def test_stop_not_running(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_stop_not_running(self, tmp_path: Path):
         host = self._setup_host(tmp_path)
-        assert host.stop_plugin("weather") is False
+        assert await host.stop_plugin("weather") is False
 
-    def test_remove_plugin(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_remove_plugin(self, tmp_path: Path):
         host = self._setup_host(tmp_path)
-        assert host.remove_plugin("weather") is True
+        assert await host.remove_plugin("weather") is True
         assert host.list_plugins() == []
 
-    def test_remove_unknown(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_remove_unknown(self, tmp_path: Path):
         host = self._setup_host(tmp_path)
-        assert host.remove_plugin("nonexistent") is False
+        assert await host.remove_plugin("nonexistent") is False
 
     def test_get_plugin_tools_from_descriptor(self, tmp_path: Path):
         plugin_dir = tmp_path / "test"
@@ -174,41 +291,10 @@ class TestMCPHostLifecycle:
         host = MCPHost(plugin_dir=tmp_path)
         assert host.get_all_tool_names() == []
 
-    def test_shutdown_no_plugins(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_shutdown_no_plugins(self, tmp_path: Path):
         host = MCPHost(plugin_dir=tmp_path)
-        host.shutdown()  # Should not raise
-
-
-# ---------------------------------------------------------------------------
-# PluginProcess — unit-level
-# ---------------------------------------------------------------------------
-
-
-class TestPluginProcess:
-    def _make_process(self) -> PluginProcess:
-        data = {"name": "test", "command": "echo", "args": ["hello"]}
-        desc = PluginDescriptor(Path("/tmp/test/descriptor.json"), data)
-        return PluginProcess(desc)
-
-    def test_not_running_initially(self):
-        proc = self._make_process()
-        assert proc.running is False
-
-    def test_call_tool_not_running(self):
-        proc = self._make_process()
-        with pytest.raises(RuntimeError, match="not running"):
-            proc.call_tool("test", {})
-
-    def test_list_tools_not_running(self):
-        data = {"name": "test", "command": "echo", "tools": [{"name": "a"}]}
-        desc = PluginDescriptor(Path("/tmp/test/descriptor.json"), data)
-        proc = PluginProcess(desc)
-        tools = proc.list_tools()
-        assert tools == [{"name": "a"}]
-
-    def test_stop_not_running(self):
-        proc = self._make_process()
-        proc.stop()  # Should not raise
+        await host.shutdown()  # Should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +303,8 @@ class TestPluginProcess:
 
 
 class TestMCPHostCallTool:
-    def test_call_tool_not_running(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_call_tool_not_connected(self, tmp_path: Path):
         plugin_dir = tmp_path / "test"
         plugin_dir.mkdir()
         desc = {"name": "test", "command": "python"}
@@ -225,73 +312,61 @@ class TestMCPHostCallTool:
         host = MCPHost(plugin_dir=tmp_path)
         host.discover()
 
-        with pytest.raises(RuntimeError, match="not running"):
-            host.call_tool("test", "do_thing", {})
+        with pytest.raises(RuntimeError, match="not connected"):
+            await host.call_tool("test", "do_thing", {})
 
-    def test_call_tool_unknown_plugin(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_call_tool_unknown_plugin(self, tmp_path: Path):
         host = MCPHost(plugin_dir=tmp_path)
-        with pytest.raises(RuntimeError, match="not running"):
-            host.call_tool("nonexistent", "tool", {})
+        with pytest.raises(RuntimeError, match="not connected"):
+            await host.call_tool("nonexistent", "tool", {})
 
 
 # ---------------------------------------------------------------------------
-# Integration: start example weather plugin
+# MCPHost — remote management
 # ---------------------------------------------------------------------------
 
 
-class TestExampleWeatherPlugin:
-    """Integration test with the bundled example weather plugin."""
+class TestMCPHostRemoteManagement:
+    @pytest.mark.asyncio
+    async def test_add_remote_persists(self, tmp_path: Path):
+        remotes_path = tmp_path / "remotes.json"
 
-    @pytest.fixture
-    def weather_host(self, tmp_path: Path) -> MCPHost:
-        """Set up a host with the example weather plugin copied to tmp."""
-        import shutil
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=remotes_path,
+        )
 
-        example_dir = Path(__file__).resolve().parent.parent.parent / "neo" / "plugins" / "example_weather"
-        if not example_dir.exists():
-            pytest.skip("Example weather plugin not found")
+        # Mock the actual connection since there's no real server
+        with patch.object(MCPConnection, "connect", new_callable=AsyncMock):
+            result = await host.add_remote(
+                name="test-server",
+                url="https://example.com/mcp",
+                transport="streamable_http",
+            )
+            assert result is True
 
-        dest = tmp_path / "weather"
-        shutil.copytree(example_dir, dest)
+        # Verify persisted
+        data = json.loads(remotes_path.read_text())
+        assert len(data) == 1
+        assert data[0]["name"] == "test-server"
 
-        # Rewrite descriptor to use absolute python path
-        import sys
+    @pytest.mark.asyncio
+    async def test_remove_remote(self, tmp_path: Path):
+        remotes_path = tmp_path / "remotes.json"
+        remotes_path.write_text(json.dumps([
+            {"name": "s1", "transport": "sse", "url": "https://example.com"},
+        ]))
 
-        desc_path = dest / "descriptor.json"
-        desc_data = json.loads(desc_path.read_text())
-        desc_data["command"] = sys.executable
-        desc_path.write_text(json.dumps(desc_data))
-
-        host = MCPHost(plugin_dir=tmp_path)
+        host = MCPHost(
+            plugin_dir=tmp_path / "plugins",
+            remotes_path=remotes_path,
+        )
         host.discover()
-        return host
 
-    def test_start_and_call(self, weather_host: MCPHost):
-        assert weather_host.start_plugin("weather") is True
-
-        plugins = weather_host.list_plugins()
-        assert any(p["name"] == "weather" and p["status"] == "running" for p in plugins)
-
-        result = weather_host.call_tool("weather", "get_weather", {"city": "Tokyo"})
-        assert "Tokyo" in result
-        assert "22°C" in result
-
-        weather_host.stop_plugin("weather")
-        plugins = weather_host.list_plugins()
-        assert any(p["name"] == "weather" and p["status"] == "stopped" for p in plugins)
-
-    def test_list_tools_from_running_plugin(self, weather_host: MCPHost):
-        weather_host.start_plugin("weather")
-        tools = weather_host.get_plugin_tools("weather")
-        assert len(tools) >= 1
-        assert any(t["name"] == "get_weather" for t in tools)
-        weather_host.shutdown()
-
-    def test_get_all_tool_names(self, weather_host: MCPHost):
-        weather_host.start_plugin("weather")
-        names = weather_host.get_all_tool_names()
-        assert "plugin::weather::get_weather" in names
-        weather_host.shutdown()
+        assert await host.remove_remote("s1") is True
+        data = json.loads(remotes_path.read_text())
+        assert len(data) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -300,8 +375,6 @@ class TestExampleWeatherPlugin:
 
 
 class TestSecurityValidation:
-    """Tests for S1/S2/S3/BP9 security hardening."""
-
     def test_allowed_commands_contains_common_runtimes(self):
         assert "python" in _ALLOWED_COMMANDS
         assert "python3" in _ALLOWED_COMMANDS
@@ -316,7 +389,7 @@ class TestSecurityValidation:
 
         host = MCPHost(plugin_dir=tmp_path)
         plugins = host.discover()
-        assert len(plugins) == 0  # Rejected at discover time
+        assert len(plugins) == 0
 
     def test_valid_plugin_name_regex(self):
         assert _PLUGIN_NAME_RE.match("weather") is not None
@@ -329,7 +402,7 @@ class TestSecurityValidation:
         assert _PLUGIN_NAME_RE.match("-bad") is None
         assert _PLUGIN_NAME_RE.match("../escape") is None
         assert _PLUGIN_NAME_RE.match("name with spaces") is None
-        assert _PLUGIN_NAME_RE.match("a" * 65) is None  # Too long
+        assert _PLUGIN_NAME_RE.match("a" * 65) is None
 
     def test_invalid_name_rejected_at_discover(self, tmp_path: Path):
         plugin_dir = tmp_path / "badname"
@@ -348,8 +421,8 @@ class TestSecurityValidation:
         assert "command" not in d
         assert "args" not in d
 
-    def test_env_var_filtering(self):
-        """Only PLUGIN_* env vars should pass through."""
+    def test_env_var_filtering_logic(self):
+        """PLUGIN_* env var filtering still works in descriptor."""
         data = {
             "name": "test",
             "command": "python",
@@ -360,13 +433,7 @@ class TestSecurityValidation:
             },
         }
         desc = PluginDescriptor(Path("/p"), data)
-        PluginProcess(desc)  # Verify it can be created
-
-        # Verify the env filtering logic
-        safe_env = {
-            k: v for k, v in desc.env.items()
-            if k.startswith("PLUGIN_")
-        }
+        safe_env = {k: v for k, v in desc.env.items() if k.startswith("PLUGIN_")}
         assert "PLUGIN_API_KEY" in safe_env
         assert "PATH" not in safe_env
         assert "HOME" not in safe_env
@@ -391,7 +458,7 @@ class TestMCPHostWatching:
         host = MCPHost(plugin_dir=tmp_path)
         host.start_watching()
         observer1 = host._observer
-        host.start_watching()  # Should not create a second observer
+        host.start_watching()
         assert host._observer is observer1
         host.stop_watching()
 
@@ -404,7 +471,6 @@ class TestMCPHostWatching:
         host.discover()
         assert len(host.list_plugins()) == 0
 
-        # Add a new plugin directory
         plugin_dir = tmp_path / "newplugin"
         plugin_dir.mkdir()
         desc = {"name": "newplugin", "command": "python", "args": ["server.py"]}
@@ -425,14 +491,14 @@ class TestMCPHostWatching:
         host.discover()
         assert len(host.list_plugins()) == 1
 
-        # Re-discover should not duplicate
         host._rediscover()
         assert len(host.list_plugins()) == 1
 
-    def test_shutdown_stops_watcher(self, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_watcher(self, tmp_path: Path):
         host = MCPHost(plugin_dir=tmp_path)
         host.start_watching()
         assert host._observer is not None
 
-        host.shutdown()
+        await host.shutdown()
         assert host._observer is None

@@ -1,36 +1,46 @@
 """MCP Plugin Host — Discover, manage, and execute MCP tool plugins.
 
-Scans ~/.neo/plugins/ for descriptor.json files that declare MCP-compatible
-tool servers.  Each plugin runs as a subprocess communicating over stdio
-using the Model Context Protocol (MCP).
+Supports **two transport modes**:
+
+* **stdio** — local subprocess plugins discovered from ``~/.neo/plugins/``
+* **SSE / streamable HTTP** — remote MCP servers listed in ``~/.neo/remotes.json``
+
+Both modes use the official ``mcp`` Python SDK ``ClientSession`` for the
+underlying MCP protocol, providing a unified ``call_tool()`` interface.
 
 Lifecycle:
-    1. discover()   — scan plugin dir for descriptors
-    2. start(name)  — launch subprocess, perform MCP initialize handshake
-    3. call_tool()  — route tool invocations through MCP protocol
-    4. stop(name)   — gracefully shut down a plugin subprocess
+    1. discover()       — scan local plugin dir + remotes.json
+    2. start_plugin()   — connect via the appropriate transport
+    3. call_tool()      — route tool invocations through MCP protocol
+    4. stop_plugin()    — gracefully disconnect
 """
 
+import asyncio
 import json
 import logging
-import os
 import re
-import select
-import shutil
-import subprocess
-import threading
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from neo.plugins.remotes import load_remotes
+from neo.plugins.transports import (
+    RemoteConfig,
+    StdioConfig,
+    TransportType,
+    connect,
+)
+
 logger = logging.getLogger(__name__)
 
 # Default plugin directory
 _DEFAULT_PLUGIN_DIR = Path.home() / ".neo" / "plugins"
+_DEFAULT_REMOTES_PATH = Path.home() / ".neo" / "remotes.json"
 
-# Allowed plugin commands (security: prevents arbitrary binary execution)
+# Allowed plugin commands for stdio (security: prevents arbitrary binary execution)
 _ALLOWED_COMMANDS = frozenset({
     "python", "python3", "node", "deno", "bun", "npx",
     "ruby", "perl", "java", "dotnet",
@@ -40,204 +50,208 @@ _ALLOWED_COMMANDS = frozenset({
 _PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
 
-class PluginDescriptor:
-    """Parsed descriptor.json for an MCP plugin."""
+# ---------------------------------------------------------------------------
+# Plugin Descriptor
+# ---------------------------------------------------------------------------
 
-    def __init__(self, path: Path, data: dict) -> None:
-        self.path = path
+
+class PluginDescriptor:
+    """Parsed plugin descriptor — supports both local and remote servers."""
+
+    def __init__(self, path: Path | None, data: dict) -> None:
+        self.path = path  # None for remote servers
         self.name: str = data["name"]
         self.version: str = data.get("version", "0.0.0")
         self.description: str = data.get("description", "")
-        self.command: str = data["command"]
+
+        # Transport type (backward compatible: defaults to "stdio")
+        self.transport: str = data.get("transport", "stdio")
+
+        # Stdio-specific fields
+        self.command: str | None = data.get("command")
         self.args: list[str] = data.get("args", [])
         self.env: dict[str, str] = data.get("env", {})
+
+        # Remote-specific fields
+        self.url: str | None = data.get("url")
+        self.auth: dict | None = data.get("auth")
+
+        # Tool cache (from descriptor or live query)
         self.tools: list[dict] = data.get("tools", [])
 
     def to_dict(self) -> dict:
         """Public-facing representation — excludes command/args for security."""
-        return {
+        d: dict[str, Any] = {
             "name": self.name,
             "version": self.version,
             "description": self.description,
             "tools": self.tools,
+            "transport": self.transport,
         }
+        if self.url:
+            d["url"] = self.url
+        return d
 
 
-class PluginProcess:
-    """Running MCP plugin subprocess."""
+# ---------------------------------------------------------------------------
+# MCP Connection — wraps a ClientSession
+# ---------------------------------------------------------------------------
+
+
+class MCPConnection:
+    """A live connection to an MCP server (local or remote)."""
 
     def __init__(self, descriptor: PluginDescriptor) -> None:
         self.descriptor = descriptor
-        self.process: subprocess.Popen | None = None
-        self._lock = threading.Lock()
-        self._request_id = 0
-        self._stderr_thread: threading.Thread | None = None
+        self._session: Any = None  # ClientSession
+        self._exit_stack: AsyncExitStack | None = None
+        self._status: str = "disconnected"
+        self._cached_tools: list[dict] = list(descriptor.tools)
 
     @property
-    def running(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+    def connected(self) -> bool:
+        return self._status == "connected"
 
-    def start(self) -> None:
-        """Launch the plugin subprocess and perform MCP initialize."""
-        if self.running:
-            return
+    @property
+    def status(self) -> str:
+        return self._status
 
-        # S2: Only allow PLUGIN_* prefixed env vars from descriptor
-        safe_env = {
-            k: v for k, v in self.descriptor.env.items()
-            if k.startswith("PLUGIN_")
-        }
-        env = {**os.environ, **safe_env}
-        plugin_dir = str(self.descriptor.path.parent)
-
-        # S1: Resolve command to absolute path via allowlist
-        cmd = self.descriptor.command
-        resolved = shutil.which(cmd)
-        if resolved is None:
-            raise FileNotFoundError(f"Plugin command not found in PATH: {cmd!r}")
-
-        self.process = subprocess.Popen(
-            [resolved, *self.descriptor.args],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=plugin_dir,
-            env=env,
-            text=True,
-            bufsize=1,
-        )
-
-        # I3: Drain stderr in background to prevent 64KB pipe deadlock
-        self._stderr_thread = threading.Thread(
-            target=self._drain_stderr, daemon=True,
-        )
-        self._stderr_thread.start()
-
-        # MCP initialize handshake
-        response = self._send_request("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "neo", "version": "0.1.0"},
-        })
-
-        if response and response.get("protocolVersion"):
-            # Send initialized notification
-            self._send_notification("notifications/initialized", {})
-            logger.info("Plugin '%s' initialized (MCP %s)", self.descriptor.name, response["protocolVersion"])
-        else:
-            logger.warning("Plugin '%s' initialize handshake failed", self.descriptor.name)
-
-    def stop(self) -> None:
-        """Gracefully shut down the plugin subprocess."""
-        if not self.running or self.process is None:
-            return
+    async def connect(self) -> None:
+        """Connect using the transport defined in the descriptor."""
+        self._status = "connecting"
+        self._exit_stack = AsyncExitStack()
 
         try:
-            self._send_notification("notifications/cancelled", {"reason": "shutdown"})
-            self.process.stdin.close()  # type: ignore[union-attr]
-            self.process.wait(timeout=5)
-        except (subprocess.TimeoutExpired, OSError):
-            self.process.kill()
-        finally:
-            self.process = None
+            transport_type = TransportType(self.descriptor.transport)
+        except ValueError:
+            self._status = "error"
+            raise ValueError(f"Unknown transport: {self.descriptor.transport}")
 
-    def call_tool(self, tool_name: str, arguments: dict) -> Any:
-        """Execute a tool call via MCP protocol."""
-        if not self.running:
-            raise RuntimeError(f"Plugin '{self.descriptor.name}' is not running")
+        try:
+            if transport_type == TransportType.STDIO:
+                if not self.descriptor.command:
+                    raise ValueError("stdio plugins require a 'command' field")
+                stdio_config = StdioConfig(
+                    command=self.descriptor.command,
+                    args=self.descriptor.args,
+                    env=self.descriptor.env,
+                    cwd=str(self.descriptor.path.parent) if self.descriptor.path else None,
+                )
+                self._session = await connect(
+                    transport_type,
+                    stdio_config=stdio_config,
+                    exit_stack=self._exit_stack,
+                )
+            else:
+                if not self.descriptor.url:
+                    raise ValueError("Remote plugins require a 'url' field")
+                auth = self.descriptor.auth or {}
+                remote_config = RemoteConfig(
+                    url=self.descriptor.url,
+                    auth_type=auth.get("type"),
+                    token_env=auth.get("token_env"),
+                    headers=auth.get("headers", {}),
+                )
+                self._session = await connect(
+                    transport_type,
+                    remote_config=remote_config,
+                    exit_stack=self._exit_stack,
+                )
 
-        result = self._send_request("tools/call", {
-            "name": tool_name,
-            "arguments": arguments,
-        })
+            # Fetch tools from the live session
+            tools_result = await self._session.list_tools()
+            self._cached_tools = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "inputSchema": t.inputSchema if hasattr(t, "inputSchema") else {},
+                }
+                for t in tools_result.tools
+            ]
+            self.descriptor.tools = self._cached_tools
+            self._status = "connected"
+            logger.info(
+                "Connected to '%s' via %s (%d tools)",
+                self.descriptor.name, self.descriptor.transport, len(self._cached_tools),
+            )
 
-        if result is None:
-            raise RuntimeError(f"No response from plugin '{self.descriptor.name}' for tool '{tool_name}'")
+        except Exception:
+            self._status = "error"
+            if self._exit_stack:
+                await self._exit_stack.aclose()
+                self._exit_stack = None
+            raise
 
-        # MCP returns content array
-        content_items = result.get("content", [])
-        texts = [item.get("text", "") for item in content_items if item.get("type") == "text"]
-        return "\n".join(texts) if texts else json.dumps(result)
+    async def disconnect(self) -> None:
+        """Gracefully close the connection."""
+        if self._exit_stack:
+            try:
+                await self._exit_stack.aclose()
+            except Exception:
+                logger.debug("Error closing connection to '%s'", self.descriptor.name, exc_info=True)
+            finally:
+                self._exit_stack = None
+                self._session = None
+                self._status = "disconnected"
 
-    def list_tools(self) -> list[dict]:
-        """Query available tools from the running plugin."""
-        if not self.running:
-            return self.descriptor.tools
+    async def call_tool(self, tool_name: str, arguments: dict) -> str:
+        """Execute a tool via the MCP session.
 
-        result = self._send_request("tools/list", {})
-        if result and "tools" in result:
-            return result["tools"]
-        return self.descriptor.tools
-
-    def _send_request(self, method: str, params: dict, timeout: float = 30.0) -> dict | None:
-        """Send a JSON-RPC request and read the response.
-
-        Args:
-            timeout: Max seconds to wait for a response (prevents blocking forever).
+        Attempts one reconnect on connection failure before raising.
         """
-        if not self.running or self.process is None:
-            return None
+        if not self.connected or self._session is None:
+            raise RuntimeError(f"Plugin '{self.descriptor.name}' is not connected")
 
-        with self._lock:
-            self._request_id += 1
-            request = {
-                "jsonrpc": "2.0",
-                "id": self._request_id,
-                "method": method,
-                "params": params,
-            }
-
-            try:
-                line = json.dumps(request) + "\n"
-                self.process.stdin.write(line)  # type: ignore[union-attr]
-                self.process.stdin.flush()  # type: ignore[union-attr]
-
-                # I2: Wait with timeout to prevent blocking forever
-                stdout_fd = self.process.stdout.fileno()  # type: ignore[union-attr]
-                ready, _, _ = select.select([stdout_fd], [], [], timeout)
-                if not ready:
-                    logger.warning("Plugin '%s' timed out after %.1fs", self.descriptor.name, timeout)
-                    return None
-
-                response_line = self.process.stdout.readline()  # type: ignore[union-attr]
-                if not response_line:
-                    return None
-
-                response = json.loads(response_line.strip())
-                return response.get("result")
-            except (json.JSONDecodeError, OSError, BrokenPipeError):
-                logger.exception("MCP communication error with plugin '%s'", self.descriptor.name)
-                return None
-
-    def _send_notification(self, method: str, params: dict) -> None:
-        """Send a JSON-RPC notification (no response expected)."""
-        if not self.running or self.process is None:
-            return
-
-        with self._lock:
-            notification = {
-                "jsonrpc": "2.0",
-                "method": method,
-                "params": params,
-            }
-            try:
-                line = json.dumps(notification) + "\n"
-                self.process.stdin.write(line)  # type: ignore[union-attr]
-                self.process.stdin.flush()  # type: ignore[union-attr]
-            except (OSError, BrokenPipeError):
-                pass
-
-    def _drain_stderr(self) -> None:
-        """Read and log stderr lines to prevent pipe buffer deadlock."""
-        if self.process is None or self.process.stderr is None:
-            return
         try:
-            for line in self.process.stderr:
-                line = line.rstrip()
-                if line:
-                    logger.debug("Plugin '%s' stderr: %s", self.descriptor.name, line)
-        except (OSError, ValueError):
-            pass
+            result = await self._session.call_tool(tool_name, arguments)
+        except Exception as first_err:
+            # Attempt one reconnect
+            logger.warning(
+                "Tool call failed for '%s::%s', attempting reconnect: %s",
+                self.descriptor.name, tool_name, first_err,
+            )
+            try:
+                await self.disconnect()
+                await self.connect()
+                result = await self._session.call_tool(tool_name, arguments)
+            except Exception as retry_err:
+                self._status = "error"
+                raise RuntimeError(
+                    f"Plugin '{self.descriptor.name}' tool '{tool_name}' failed after reconnect: {retry_err}"
+                ) from retry_err
+
+        # Extract text from content items
+        texts = []
+        for item in result.content:
+            if hasattr(item, "text"):
+                texts.append(item.text)
+        return "\n".join(texts) if texts else json.dumps({"isError": result.isError})
+
+    async def refresh_tools(self) -> list[dict]:
+        """Re-query tools from the server."""
+        if not self.connected or self._session is None:
+            return self._cached_tools
+
+        tools_result = await self._session.list_tools()
+        self._cached_tools = [
+            {
+                "name": t.name,
+                "description": t.description or "",
+                "inputSchema": t.inputSchema if hasattr(t, "inputSchema") else {},
+            }
+            for t in tools_result.tools
+        ]
+        self.descriptor.tools = self._cached_tools
+        return self._cached_tools
+
+    def get_tools(self) -> list[dict]:
+        """Return cached tools (synchronous)."""
+        return self._cached_tools
+
+
+# ---------------------------------------------------------------------------
+# Watchdog handler for hot-reload
+# ---------------------------------------------------------------------------
 
 
 class _PluginDirHandler(FileSystemEventHandler):
@@ -258,34 +272,63 @@ class _PluginDirHandler(FileSystemEventHandler):
                 logger.exception("Error during plugin re-discovery")
 
 
+# ---------------------------------------------------------------------------
+# MCP Host
+# ---------------------------------------------------------------------------
+
+
 class MCPHost:
     """Central plugin host — discovers, starts, stops, and routes tool calls.
+
+    Supports both local stdio plugins and remote MCP servers.
 
     Usage::
 
         host = MCPHost()
         host.discover()
-        host.start_plugin("weather")
-        result = host.call_tool("weather", "get_weather", {"city": "NYC"})
-        host.stop_plugin("weather")
+        await host.start_plugin("weather")
+        result = await host.call_tool("weather", "get_weather", {"city": "NYC"})
+        await host.stop_plugin("weather")
     """
 
-    def __init__(self, plugin_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        plugin_dir: Path | None = None,
+        remotes_path: Path | None = None,
+    ) -> None:
         self._plugin_dir = plugin_dir or _DEFAULT_PLUGIN_DIR
+        self._remotes_path = remotes_path or _DEFAULT_REMOTES_PATH
         self._descriptors: dict[str, PluginDescriptor] = {}
-        self._processes: dict[str, PluginProcess] = {}
-        self._lock = threading.Lock()
+        self._connections: dict[str, MCPConnection] = {}
+        self._lock = asyncio.Lock()
         self._observer: Observer | None = None
+        self._health_task: asyncio.Task | None = None
 
     @property
     def plugin_dir(self) -> Path:
         return self._plugin_dir
 
-    def discover(self) -> list[PluginDescriptor]:
-        """Scan plugin directory for descriptor.json files.
+    # ------------------------------------------------------------------
+    # Discovery (synchronous — file I/O only)
+    # ------------------------------------------------------------------
 
-        Returns list of discovered plugin descriptors.
+    def discover(self) -> list[PluginDescriptor]:
+        """Scan local plugin directory + remotes.json for all servers.
+
+        Returns list of all discovered plugin descriptors.
         """
+        discovered: list[PluginDescriptor] = []
+
+        # 1. Local stdio plugins
+        discovered.extend(self._discover_local())
+
+        # 2. Remote servers from remotes.json
+        discovered.extend(self._discover_remotes())
+
+        return discovered
+
+    def _discover_local(self) -> list[PluginDescriptor]:
+        """Scan ``~/.neo/plugins/`` for local stdio plugin descriptors."""
         self._plugin_dir.mkdir(parents=True, exist_ok=True)
         discovered: list[PluginDescriptor] = []
 
@@ -303,7 +346,6 @@ class MCPHost:
                     logger.warning("Invalid descriptor at %s: missing name or command", descriptor_path)
                     continue
 
-                # Validate plugin name (BP9: alphanumeric + hyphens)
                 if not _PLUGIN_NAME_RE.match(data["name"]):
                     logger.warning("Invalid plugin name %r at %s", data["name"], descriptor_path)
                     continue
@@ -317,80 +359,119 @@ class MCPHost:
                     )
                     continue
 
+                # Default transport to stdio for local plugins
+                data.setdefault("transport", "stdio")
+
                 desc = PluginDescriptor(descriptor_path, data)
                 self._descriptors[desc.name] = desc
                 discovered.append(desc)
-                logger.info("Discovered plugin: %s v%s", desc.name, desc.version)
+                logger.info("Discovered local plugin: %s v%s", desc.name, desc.version)
             except (json.JSONDecodeError, KeyError):
                 logger.exception("Failed to parse descriptor at %s", descriptor_path)
 
         return discovered
 
+    def _discover_remotes(self) -> list[PluginDescriptor]:
+        """Load remote server descriptors from ``~/.neo/remotes.json``."""
+        discovered: list[PluginDescriptor] = []
+        remotes = load_remotes(self._remotes_path)
+
+        for remote in remotes:
+            name = remote.get("name", "")
+            if not name:
+                continue
+
+            if not _PLUGIN_NAME_RE.match(name):
+                logger.warning("Invalid remote server name: %r", name)
+                continue
+
+            if name in self._descriptors:
+                logger.debug("Skipping duplicate remote '%s' (already discovered)", name)
+                continue
+
+            desc = PluginDescriptor(None, remote)
+            self._descriptors[desc.name] = desc
+            discovered.append(desc)
+            logger.info("Discovered remote server: %s (%s)", desc.name, desc.transport)
+
+        return discovered
+
+    # ------------------------------------------------------------------
+    # Plugin lifecycle (async)
+    # ------------------------------------------------------------------
+
     def list_plugins(self) -> list[dict]:
         """Return all known plugins with their status."""
         plugins = []
         for name, desc in self._descriptors.items():
-            proc = self._processes.get(name)
+            conn = self._connections.get(name)
             plugins.append({
                 **desc.to_dict(),
-                "status": "running" if (proc and proc.running) else "stopped",
+                "status": conn.status if conn else "stopped",
             })
         return plugins
 
-    def start_plugin(self, name: str) -> bool:
-        """Start a plugin by name. Returns True on success."""
+    async def start_plugin(self, name: str) -> bool:
+        """Connect to a plugin by name. Returns True on success."""
         desc = self._descriptors.get(name)
         if desc is None:
             logger.error("Plugin not found: %s", name)
             return False
 
-        with self._lock:
-            if name in self._processes and self._processes[name].running:
-                return True  # Already running
+        async with self._lock:
+            existing = self._connections.get(name)
+            if existing and existing.connected:
+                return True  # Already connected
 
-            proc = PluginProcess(desc)
+            conn = MCPConnection(desc)
             try:
-                proc.start()
-                self._processes[name] = proc
+                await conn.connect()
+                self._connections[name] = conn
                 return True
-            except (OSError, FileNotFoundError):
+            except Exception:
                 logger.exception("Failed to start plugin '%s'", name)
                 return False
 
-    def stop_plugin(self, name: str) -> bool:
-        """Stop a running plugin. Returns True if stopped."""
-        with self._lock:
-            proc = self._processes.get(name)
-            if proc is None or not proc.running:
+    async def stop_plugin(self, name: str) -> bool:
+        """Disconnect from a plugin. Returns True if stopped."""
+        async with self._lock:
+            conn = self._connections.get(name)
+            if conn is None or not conn.connected:
                 return False
 
-            proc.stop()
+            await conn.disconnect()
             return True
 
-    def remove_plugin(self, name: str) -> bool:
-        """Stop and unregister a plugin."""
-        self.stop_plugin(name)
-        with self._lock:
+    async def remove_plugin(self, name: str) -> bool:
+        """Disconnect and unregister a plugin."""
+        await self.stop_plugin(name)
+        async with self._lock:
             if name in self._descriptors:
                 del self._descriptors[name]
-                self._processes.pop(name, None)
+                self._connections.pop(name, None)
                 return True
             return False
 
-    def call_tool(self, plugin_name: str, tool_name: str, arguments: dict) -> str:
+    async def call_tool(self, plugin_name: str, tool_name: str, arguments: dict) -> str:
         """Execute a tool on a specific plugin."""
-        proc = self._processes.get(plugin_name)
-        if proc is None or not proc.running:
-            raise RuntimeError(f"Plugin '{plugin_name}' is not running")
+        conn = self._connections.get(plugin_name)
+        if conn is None or not conn.connected:
+            raise RuntimeError(f"Plugin '{plugin_name}' is not connected")
 
-        result = proc.call_tool(tool_name, arguments)
-        return str(result)
+        return await conn.call_tool(tool_name, arguments)
+
+    async def refresh_tools(self, name: str) -> list[dict]:
+        """Re-query tools from a running plugin."""
+        conn = self._connections.get(name)
+        if conn is None or not conn.connected:
+            raise RuntimeError(f"Plugin '{name}' is not connected")
+        return await conn.refresh_tools()
 
     def get_plugin_tools(self, name: str) -> list[dict]:
-        """Get tool definitions from a plugin."""
-        proc = self._processes.get(name)
-        if proc and proc.running:
-            return proc.list_tools()
+        """Get tool definitions from a plugin (synchronous)."""
+        conn = self._connections.get(name)
+        if conn and conn.connected:
+            return conn.get_tools()
 
         desc = self._descriptors.get(name)
         if desc:
@@ -398,15 +479,80 @@ class MCPHost:
         return []
 
     def get_all_tool_names(self) -> list[str]:
-        """Get all tool names across all running plugins, prefixed with plugin name."""
+        """Get all tool names across all connected plugins, prefixed."""
         tools = []
-        for name, proc in self._processes.items():
-            if proc.running:
-                for tool in proc.list_tools():
+        for name, conn in self._connections.items():
+            if conn.connected:
+                for tool in conn.get_tools():
                     tool_name = tool.get("name", "")
                     if tool_name:
                         tools.append(f"plugin::{name}::{tool_name}")
         return tools
+
+    # ------------------------------------------------------------------
+    # Remote server management
+    # ------------------------------------------------------------------
+
+    async def add_remote(
+        self,
+        name: str,
+        url: str,
+        transport: str = "streamable_http",
+        auth: dict | None = None,
+        description: str = "",
+    ) -> bool:
+        """Add a new remote MCP server and connect to it.
+
+        Also persists the configuration to ``~/.neo/remotes.json``.
+        """
+        from neo.plugins.remotes import add_remote as _add_remote
+
+        config = {
+            "name": name,
+            "transport": transport,
+            "url": url,
+            "description": description,
+        }
+        if auth:
+            config["auth"] = auth
+
+        _add_remote(config, self._remotes_path)
+
+        # Register and connect
+        desc = PluginDescriptor(None, config)
+        self._descriptors[desc.name] = desc
+        return await self.start_plugin(name)
+
+    async def remove_remote(self, name: str) -> bool:
+        """Disconnect from and remove a remote server."""
+        from neo.plugins.remotes import remove_remote as _remove_remote
+
+        await self.stop_plugin(name)
+        async with self._lock:
+            self._descriptors.pop(name, None)
+            self._connections.pop(name, None)
+        return _remove_remote(name, self._remotes_path)
+
+    # ------------------------------------------------------------------
+    # Health check for remote connections
+    # ------------------------------------------------------------------
+
+    async def start_health_checker(self) -> None:
+        """Start a background task that checks remote connections."""
+        self._health_task = asyncio.create_task(self._health_check_loop())
+
+    async def _health_check_loop(self) -> None:
+        """Background health check — every 60s, reconnect dropped remotes."""
+        while True:
+            await asyncio.sleep(60)
+            for name, conn in list(self._connections.items()):
+                if conn.descriptor.transport != "stdio" and conn.status == "error":
+                    logger.info("Health check: reconnecting '%s'", name)
+                    try:
+                        await conn.disconnect()
+                        await conn.connect()
+                    except Exception:
+                        logger.debug("Health check reconnect failed for '%s'", name, exc_info=True)
 
     # ------------------------------------------------------------------
     # Hot-reload: file watcher for plugin directory
@@ -437,7 +583,7 @@ class MCPHost:
         logger.info("Plugin directory watcher stopped")
 
     def _rediscover(self) -> None:
-        """Re-scan plugin directory and register any new plugins."""
+        """Re-scan plugin directory and register any new local plugins."""
         self._plugin_dir.mkdir(parents=True, exist_ok=True)
 
         for entry in self._plugin_dir.iterdir():
@@ -448,7 +594,6 @@ class MCPHost:
             if not descriptor_path.exists():
                 continue
 
-            # Skip already-known plugins
             try:
                 data = json.loads(descriptor_path.read_text())
             except (json.JSONDecodeError, OSError):
@@ -468,13 +613,33 @@ class MCPHost:
             if base_cmd not in _ALLOWED_COMMANDS:
                 continue
 
+            data.setdefault("transport", "stdio")
             desc = PluginDescriptor(descriptor_path, data)
             self._descriptors[desc.name] = desc
             logger.info("Hot-reload: discovered new plugin %s v%s", desc.name, desc.version)
 
-    def shutdown(self) -> None:
-        """Stop all running plugins and the file watcher."""
+    # ------------------------------------------------------------------
+    # Shutdown
+    # ------------------------------------------------------------------
+
+    async def shutdown(self) -> None:
+        """Stop all connections, health checker, and file watcher."""
+        # Cancel health check
+        if self._health_task and not self._health_task.done():
+            self._health_task.cancel()
+            try:
+                await self._health_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop file watcher
         self.stop_watching()
-        for name in list(self._processes.keys()):
-            self.stop_plugin(name)
+
+        # Disconnect all plugins
+        for name in list(self._connections.keys()):
+            try:
+                await self.stop_plugin(name)
+            except Exception:
+                logger.debug("Error stopping plugin '%s'", name, exc_info=True)
+
         logger.info("All plugins shut down")

@@ -690,7 +690,7 @@ async def process(
             result["tool_used"] = tool_name
 
             # Execute the tool
-            tool_output = dispatch_tool(tool_name, tool_input)
+            tool_output = await dispatch_tool(tool_name, tool_input)
             result["tool_result"] = tool_output
             result["message"] = f"Executed {tool_name}: {tool_output}"
         else:
@@ -741,11 +741,11 @@ async def process(
     return result
 
 
-def dispatch_tool(tool_name: str, tool_input: dict) -> str:
+async def dispatch_tool(tool_name: str, tool_input: dict) -> str:
     """Dispatch a tool call to the correct module function.
 
     Supports both built-in tools (TOOL_REGISTRY) and MCP plugin tools
-    (prefixed with ``plugin_``).  Plugin tools are routed through the
+    (prefixed with ``plugin::``).  Plugin tools are routed through the
     global :data:`_mcp_host` if available.
 
     Raises ToolError on failure instead of returning error strings.
@@ -758,7 +758,7 @@ def dispatch_tool(tool_name: str, tool_input: dict) -> str:
             raise ToolError(f"Invalid plugin tool name: {tool_name}")
         plugin_name, plugin_tool = parts[1], parts[2]
         try:
-            return _mcp_host.call_tool(plugin_name, plugin_tool, tool_input)
+            return await _mcp_host.call_tool(plugin_name, plugin_tool, tool_input)
         except Exception as e:
             raise ToolError(f"Plugin tool '{tool_name}' failed: {e}") from e
 

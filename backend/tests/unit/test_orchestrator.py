@@ -103,13 +103,15 @@ class TestToolDefinitions:
 
 
 class TestToolDispatch:
-    def test_unknown_tool_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_unknown_tool_raises_error(self):
         with pytest.raises(ToolError, match="Unknown tool"):
-            dispatch_tool("nonexistent_tool", {})
+            await dispatch_tool("nonexistent_tool", {})
 
-    def test_dispatch_calls_correct_module(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_dispatch_calls_correct_module(self, tmp_path):
         # Use tmp_path to avoid creating files in user's home
-        result = dispatch_tool("create_excel", {"title": str(tmp_path / "Test")})
+        result = await dispatch_tool("create_excel", {"title": str(tmp_path / "Test")})
         assert "Test" in result or ".xlsx" in result
 
 

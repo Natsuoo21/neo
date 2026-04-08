@@ -253,7 +253,9 @@ export interface Plugin {
   version: string;
   description: string;
   tools: { name: string; description?: string }[];
-  status: "running" | "stopped";
+  status: "running" | "stopped" | "connected" | "connecting" | "disconnected" | "error";
+  transport: "stdio" | "sse" | "streamable_http";
+  url?: string;
 }
 
 export interface PluginListResult {
@@ -274,6 +276,39 @@ export interface PluginStatusResult {
   name: string;
   status: string;
   tools: { name: string; description?: string }[];
+}
+
+export interface AddRemoteParams {
+  name: string;
+  url: string;
+  transport?: "sse" | "streamable_http";
+  description?: string;
+  auth?: {
+    type: "bearer" | "api_key" | "header";
+    token_env?: string;
+    token?: string;
+  };
+}
+
+export interface AddRemoteResult {
+  added: boolean;
+  name: string;
+}
+
+export interface TestConnectionParams {
+  url: string;
+  transport?: "sse" | "streamable_http";
+  auth?: {
+    type: "bearer" | "api_key" | "header";
+    token_env?: string;
+    token?: string;
+  };
+}
+
+export interface TestConnectionResult {
+  success: boolean;
+  error?: string;
+  tools?: { name: string; description?: string }[];
 }
 
 // --- Suggestion types ---

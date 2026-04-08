@@ -356,7 +356,7 @@ async def lifespan(app: FastAPI):
 
     if _mcp_host:
         try:
-            _mcp_host.shutdown()
+            await _mcp_host.shutdown()
             set_mcp_host(None)
         except (RuntimeError, OSError):
             logger.exception("Error shutting down MCP host")
@@ -1174,7 +1174,7 @@ async def _rpc_plugin_install(params: dict) -> dict:
     if _mcp_host is None:
         raise RuntimeError("MCP host not available")
 
-    started = _mcp_host.start_plugin(name)
+    started = await _mcp_host.start_plugin(name)
     return {"started": started, "name": name}
 
 
@@ -1186,7 +1186,7 @@ async def _rpc_plugin_stop(params: dict) -> dict:
     if _mcp_host is None:
         raise RuntimeError("MCP host not available")
 
-    stopped = _mcp_host.stop_plugin(name)
+    stopped = await _mcp_host.stop_plugin(name)
     return {"stopped": stopped, "name": name}
 
 
@@ -1198,7 +1198,7 @@ async def _rpc_plugin_remove(params: dict) -> dict:
     if _mcp_host is None:
         raise RuntimeError("MCP host not available")
 
-    removed = _mcp_host.remove_plugin(name)
+    removed = await _mcp_host.remove_plugin(name)
     return {"removed": removed, "name": name}
 
 
@@ -1217,6 +1217,92 @@ async def _rpc_plugin_status(params: dict) -> dict:
             return {"name": name, "status": p["status"], "tools": tools}
 
     return {"name": name, "status": "not_found", "tools": []}
+
+
+async def _rpc_plugin_add_remote(params: dict) -> dict:
+    """Add a new remote MCP server and connect to it."""
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    name = params.get("name", "").strip()
+    url = params.get("url", "").strip()
+    transport = params.get("transport", "streamable_http").strip()
+    description = params.get("description", "")
+    auth = params.get("auth")
+
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+    if not url:
+        raise ValueError("Missing 'url' parameter")
+
+    added = await _mcp_host.add_remote(
+        name=name,
+        url=url,
+        transport=transport,
+        auth=auth,
+        description=description,
+    )
+    return {"added": added, "name": name}
+
+
+async def _rpc_plugin_remove_remote(params: dict) -> dict:
+    """Remove a remote MCP server and disconnect."""
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+
+    removed = await _mcp_host.remove_remote(name)
+    return {"removed": removed, "name": name}
+
+
+async def _rpc_plugin_refresh_tools(params: dict) -> dict:
+    """Re-query tools from a running plugin."""
+    if _mcp_host is None:
+        raise RuntimeError("MCP host not available")
+
+    name = params.get("name", "").strip()
+    if not name:
+        raise ValueError("Missing 'name' parameter")
+
+    tools = await _mcp_host.refresh_tools(name)
+    return {"name": name, "tools": tools}
+
+
+async def _rpc_plugin_test_connection(params: dict) -> dict:
+    """Test connectivity to a remote MCP server without persisting config."""
+    from neo.plugins.mcp_host import MCPConnection, PluginDescriptor
+
+    url = params.get("url", "").strip()
+    transport = params.get("transport", "streamable_http").strip()
+    auth = params.get("auth")
+
+    if not url:
+        raise ValueError("Missing 'url' parameter")
+
+    desc = PluginDescriptor(None, {
+        "name": "__test__",
+        "transport": transport,
+        "url": url,
+        "auth": auth or {},
+    })
+    conn = MCPConnection(desc)
+
+    try:
+        await conn.connect()
+        tools = conn.get_tools()
+        await conn.disconnect()
+        return {
+            "success": True,
+            "tools": tools,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1364,6 +1450,10 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.plugin.stop": _rpc_plugin_stop,
     "neo.plugin.remove": _rpc_plugin_remove,
     "neo.plugin.status": _rpc_plugin_status,
+    "neo.plugin.add_remote": _rpc_plugin_add_remote,
+    "neo.plugin.remove_remote": _rpc_plugin_remove_remote,
+    "neo.plugin.refresh_tools": _rpc_plugin_refresh_tools,
+    "neo.plugin.test_connection": _rpc_plugin_test_connection,
     "neo.voice.start": _rpc_voice_start,
     "neo.voice.stop": _rpc_voice_stop,
     "neo.voice.status": _rpc_voice_status,
