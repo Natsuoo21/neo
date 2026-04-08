@@ -54,19 +54,15 @@ iscc installer/neo_setup.iss
 
 Output: `installer/output/NeoSetup-0.1.0.exe`
 
-## Optional: Bundle Ollama
+## Optional: Ollama for Local AI
 
-To include Ollama for local LLM support:
+The installer includes an optional checkbox to download and install Ollama during setup:
 
-1. Download the Ollama Windows installer from https://ollama.com
-2. Add to `[Files]` section in `neo_setup.iss`:
-   ```
-   Source: "ollama-setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-   ```
-3. Add to `[Run]` section:
-   ```
-   Filename: "{tmp}\ollama-setup.exe"; Parameters: "/SILENT"; StatusMsg: "Installing Ollama..."
-   ```
+- **Auto-detection**: If Ollama is already installed, the checkbox is disabled with "(already installed)"
+- **Download at install time**: `OllamaSetup.exe` is downloaded from `https://ollama.com/download/OllamaSetup.exe` via Inno Setup's `DownloadTemporaryFile` (requires Inno Setup 6.3+)
+- **Silent install**: Runs `/VERYSILENT /SUPPRESSMSGBOXES` — no user interaction needed
+- **Default model pull**: After install, `ollama pull qwen2.5:3b` runs in the background (non-blocking) so the model downloads while the user starts Neo
+- **Graceful failure**: If download or install fails, a message box informs the user and the Neo installation continues normally
 
 ## Directory Structure (installed)
 

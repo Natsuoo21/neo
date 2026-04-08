@@ -43,6 +43,7 @@ Name: "portuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "startupicon"; Description: "Start Neo with Windows"; GroupDescription: "Startup:"
+Name: "install_ollama"; Description: "Download and install Ollama for local AI (recommended)"; GroupDescription: "Optional components:"; Flags: unchecked
 
 [Files]
 ; Tauri executable (built by `npm run tauri build`)
@@ -70,6 +71,107 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Type: filesandordirs; Name: "{app}\logs"
 
 [Code]
+
+// ── Ollama detection ──
+
+function OllamaAlreadyInstalled(): Boolean;
+var
+  OllamaPath: String;
+  RegPath: String;
+begin
+  // Check common install location
+  OllamaPath := ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe');
+  if FileExists(OllamaPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // Check registry (machine-wide install)
+  if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Ollama',
+    'InstallLocation', RegPath) then
+  begin
+    if FileExists(RegPath + '\ollama.exe') then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  // Check if ollama is in PATH
+  if FileExists(ExpandConstant('{sys}\ollama.exe')) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+procedure InitializeWizard();
+begin
+  // If Ollama is already installed, uncheck and disable the task
+  if OllamaAlreadyInstalled() then
+  begin
+    WizardForm.TasksList.ItemCaption[WizardForm.TasksList.Items.Count - 1] :=
+      'Download and install Ollama for local AI (already installed)';
+    WizardForm.TasksList.Checked[WizardForm.TasksList.Items.Count - 1] := False;
+    WizardForm.TasksList.ItemEnabled[WizardForm.TasksList.Items.Count - 1] := False;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  OllamaInstallerPath: String;
+  ResultCode: Integer;
+  DownloadUrl: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if IsTaskSelected('install_ollama') then
+    begin
+      DownloadUrl := 'https://ollama.com/download/OllamaSetup.exe';
+      OllamaInstallerPath := ExpandConstant('{tmp}\OllamaSetup.exe');
+
+      // Download Ollama installer
+      try
+        DownloadTemporaryFile(DownloadUrl, 'OllamaSetup.exe', '', nil);
+      except
+        Log('Ollama download failed: ' + GetExceptionMessage);
+        MsgBox('Ollama download failed. You can install it later from https://ollama.com',
+          mbInformation, MB_OK);
+        Exit;
+      end;
+
+      // Run Ollama installer silently
+      if not Exec(OllamaInstallerPath, '/VERYSILENT /SUPPRESSMSGBOXES', '',
+        SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      begin
+        Log('Ollama install exec failed');
+        MsgBox('Ollama installation failed. You can install it later from https://ollama.com',
+          mbInformation, MB_OK);
+        Exit;
+      end;
+
+      if ResultCode <> 0 then
+      begin
+        Log('Ollama installer exited with code: ' + IntToStr(ResultCode));
+        MsgBox('Ollama installation failed (exit code ' + IntToStr(ResultCode) +
+          '). You can install it later from https://ollama.com',
+          mbInformation, MB_OK);
+        Exit;
+      end;
+
+      Log('Ollama installed successfully');
+
+      // Pull default model (non-blocking — runs in background)
+      Exec(ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe'),
+        'pull qwen2.5:3b', '', SW_HIDE, ewNoWait, ResultCode);
+      Log('Started background model pull: qwen2.5:3b');
+    end;
+  end;
+end;
+
 // Ask user whether to preserve data on uninstall
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
