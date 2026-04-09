@@ -3,7 +3,19 @@
 import pytest
 
 from neo.llm.mock import MockProvider
-from neo.memory.models import add_message, create_project, get_conversation
+from neo.memory.models import (
+    add_message,
+    count_messages,
+    create_project,
+    delete_session,
+    get_conversation,
+    get_session_row,
+    list_sessions,
+    pin_session,
+    rename_session,
+    search_sessions,
+    upsert_session,
+)
 from neo.orchestrator import (
     CONTEXT_BUDGETS,
     _estimate_tokens,
@@ -166,3 +178,75 @@ class TestConversationStorage:
 
         history = get_conversation(memory_db, session, limit=10)
         assert len(history) == 10
+
+
+class TestConversationSessions:
+    def test_upsert_and_rename_session(self, memory_db):
+        sid = "s1"
+        add_message(memory_db, sid, "user", "hi")
+        add_message(memory_db, sid, "assistant", "hello", model_used="mock")
+        upsert_session(memory_db, sid)
+        assert rename_session(memory_db, sid, "My Title") is True
+
+        row = get_session_row(memory_db, sid)
+        assert row is not None
+        assert row["title"] == "My Title"
+
+    def test_pin_sort_order(self, memory_db):
+        # Two sessions; pin the older one and it should sort first.
+        add_message(memory_db, "older", "user", "first")
+        add_message(memory_db, "newer", "user", "second")
+        upsert_session(memory_db, "older")
+        upsert_session(memory_db, "newer")
+        pin_session(memory_db, "older", True)
+        memory_db.commit()
+
+        rows = list_sessions(memory_db, limit=10)
+        assert rows[0]["session_id"] == "older"
+        assert rows[0]["is_pinned"] == 1
+        assert rows[1]["session_id"] == "newer"
+
+    def test_search_sessions_like(self, memory_db):
+        add_message(memory_db, "s1", "user", "Remind me to call mom tomorrow")
+        add_message(memory_db, "s2", "user", "Refactor the scheduler")
+        upsert_session(memory_db, "s1")
+        upsert_session(memory_db, "s2")
+        memory_db.commit()
+
+        results = search_sessions(memory_db, "mom")
+        ids = {r["session_id"] for r in results}
+        assert "s1" in ids
+        assert "s2" not in ids
+
+    def test_search_sessions_empty_returns_all(self, memory_db):
+        add_message(memory_db, "s1", "user", "hi")
+        upsert_session(memory_db, "s1")
+        memory_db.commit()
+
+        results = search_sessions(memory_db, "")
+        assert len(results) == 1
+
+    def test_delete_session_removes_messages(self, memory_db):
+        add_message(memory_db, "s1", "user", "hi")
+        upsert_session(memory_db, "s1")
+        memory_db.commit()
+
+        assert delete_session(memory_db, "s1") is True
+        assert get_session_row(memory_db, "s1") is None
+        assert get_conversation(memory_db, "s1") == []
+
+    def test_count_messages(self, memory_db):
+        add_message(memory_db, "s1", "user", "hi")
+        add_message(memory_db, "s1", "assistant", "hello", model_used="mock")
+        memory_db.commit()
+        assert count_messages(memory_db, "s1") == 2
+        assert count_messages(memory_db, "nonexistent") == 0
+
+    def test_list_sessions_includes_first_user_message(self, memory_db):
+        add_message(memory_db, "s1", "user", "What is the weather")
+        add_message(memory_db, "s1", "assistant", "Sunny", model_used="mock")
+        upsert_session(memory_db, "s1")
+        memory_db.commit()
+
+        rows = list_sessions(memory_db, limit=10)
+        assert rows[0]["first_user_message"] == "What is the weather"

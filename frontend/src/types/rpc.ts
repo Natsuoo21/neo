@@ -47,10 +47,41 @@ export interface ConversationSession {
   started_at: string;
   last_message_at: string;
   message_count: number;
+  title?: string | null;
+  is_pinned?: 0 | 1;
+  pinned_at?: string | null;
+  first_user_message?: string | null;
 }
 
 export interface ConversationListResult {
   sessions: ConversationSession[];
+}
+
+export interface ConversationRenameResult {
+  ok: boolean;
+  session_id: string;
+  title: string;
+}
+
+export interface ConversationDeleteResult {
+  deleted: boolean;
+  session_id: string;
+}
+
+export interface ConversationPinResult {
+  ok: boolean;
+  session_id: string;
+  pinned: boolean;
+}
+
+export interface ConversationSearchResult {
+  sessions: ConversationSession[];
+  query: string;
+}
+
+export interface ConversationGenerateTitleResult {
+  session_id: string;
+  title: string;
 }
 
 export interface ConversationMessage {

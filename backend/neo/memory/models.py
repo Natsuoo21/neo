@@ -442,6 +442,114 @@ def get_conversation(conn: sqlite3.Connection, session_id: str, limit: int = 20)
     return [_row_to_dict(r) for r in rows]
 
 
+def count_messages(conn: sqlite3.Connection, session_id: str) -> int:
+    """Return the total number of messages in a session."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM conversations WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+# ============================================
+# CONVERSATION SESSIONS (metadata sidecar)
+# ============================================
+
+_SESSION_LIST_SQL = """
+    SELECT cs.session_id,
+           cs.title,
+           cs.is_pinned,
+           cs.pinned_at,
+           MIN(c.created_at) AS started_at,
+           MAX(c.created_at) AS last_message_at,
+           COUNT(c.id) AS message_count,
+           (SELECT content FROM conversations
+            WHERE session_id = cs.session_id AND role = 'user'
+            ORDER BY created_at ASC LIMIT 1) AS first_user_message
+    FROM conversation_sessions cs
+    LEFT JOIN conversations c ON c.session_id = cs.session_id
+"""
+
+_SESSION_LIST_ORDER = (
+    " GROUP BY cs.session_id"
+    " ORDER BY cs.is_pinned DESC, cs.pinned_at DESC, MAX(c.created_at) DESC"
+    " LIMIT ?"
+)
+
+
+def upsert_session(conn: sqlite3.Connection, session_id: str) -> None:
+    """Ensure a conversation_sessions row exists for the given session_id."""
+    conn.execute(
+        "INSERT OR IGNORE INTO conversation_sessions (session_id) VALUES (?)",
+        (session_id,),
+    )
+
+
+def get_session_row(conn: sqlite3.Connection, session_id: str) -> dict | None:
+    """Fetch the conversation_sessions row for a session_id, or None."""
+    row = conn.execute(
+        "SELECT * FROM conversation_sessions WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def rename_session(conn: sqlite3.Connection, session_id: str, title: str) -> bool:
+    """Set the title for a session. Creates the metadata row if missing."""
+    upsert_session(conn, session_id)
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        "UPDATE conversation_sessions SET title = ?, updated_at = ? WHERE session_id = ?",
+        (title, now, session_id),
+    )
+    return cursor.rowcount > 0
+
+
+def delete_session(conn: sqlite3.Connection, session_id: str) -> bool:
+    """Delete a session from both conversations and conversation_sessions."""
+    conn.execute("DELETE FROM conversations WHERE session_id = ?", (session_id,))
+    cursor = conn.execute(
+        "DELETE FROM conversation_sessions WHERE session_id = ?",
+        (session_id,),
+    )
+    return cursor.rowcount > 0
+
+
+def pin_session(conn: sqlite3.Connection, session_id: str, pinned: bool) -> bool:
+    """Pin or unpin a session."""
+    upsert_session(conn, session_id)
+    now = datetime.now(timezone.utc).isoformat()
+    pinned_at = now if pinned else None
+    cursor = conn.execute(
+        """UPDATE conversation_sessions
+           SET is_pinned = ?, pinned_at = ?, updated_at = ?
+           WHERE session_id = ?""",
+        (1 if pinned else 0, pinned_at, now, session_id),
+    )
+    return cursor.rowcount > 0
+
+
+def list_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
+    """List sessions with metadata, pinned first, then by most recent message."""
+    rows = conn.execute(_SESSION_LIST_SQL + _SESSION_LIST_ORDER, (limit,)).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def search_sessions(conn: sqlite3.Connection, query: str, limit: int = 50) -> list[dict]:
+    """Search sessions by title or message content (case-insensitive LIKE)."""
+    q = (query or "").strip()
+    if not q:
+        return list_sessions(conn, limit=limit)
+    pattern = f"%{q.lower()}%"
+    sql = (
+        _SESSION_LIST_SQL
+        + " WHERE LOWER(COALESCE(cs.title, '')) LIKE ? OR LOWER(c.content) LIKE ?"
+        + _SESSION_LIST_ORDER
+    )
+    rows = conn.execute(sql, (pattern, pattern, limit)).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 # ============================================
 # SUGGESTIONS
 # ============================================

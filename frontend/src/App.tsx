@@ -4,14 +4,16 @@ import AppLayout from "@/components/AppLayout";
 import { checkBackendHealth } from "@/lib/backend";
 import { registerHotkeys } from "@/lib/hotkeys";
 import { notify } from "@/lib/notifications";
-import { connectStream } from "@/lib/rpc";
+import { connectStream, rpc } from "@/lib/rpc";
 import { useNeoStore } from "@/stores/neoStore";
+import type { ConversationListResult } from "@/types/rpc";
 
 type WindowLabel = "main" | "floating-bar";
 
 function App() {
   const [windowLabel, setWindowLabel] = useState<WindowLabel>("main");
   const setConnected = useNeoStore((s) => s.setConnected);
+  const setSessions = useNeoStore((s) => s.setSessions);
 
   useEffect(() => {
     async function detectWindow() {
@@ -83,11 +85,18 @@ function App() {
         }
       } else if (event === "suggestion") {
         await notify("Neo — New Suggestion", (d.description as string) || "Neo has a suggestion for you.");
+      } else if (event === "session_updated") {
+        try {
+          const res = await rpc<ConversationListResult>("neo.conversation.list");
+          setSessions(res.sessions);
+        } catch (err) {
+          console.error("Failed to refresh sessions:", err);
+        }
       }
     });
 
     return disconnect;
-  }, [windowLabel]);
+  }, [windowLabel, setSessions]);
 
   if (windowLabel === "floating-bar") {
     return <FloatingBar />;

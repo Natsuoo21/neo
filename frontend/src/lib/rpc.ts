@@ -121,6 +121,14 @@ export function connectStream(
     }
   });
 
+  source.addEventListener("session_updated", (e) => {
+    try {
+      onEvent("session_updated", JSON.parse(e.data));
+    } catch {
+      onEvent("session_updated", e.data);
+    }
+  });
+
   source.onerror = (e) => {
     onError?.(e);
   };

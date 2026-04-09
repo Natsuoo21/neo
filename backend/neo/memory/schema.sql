@@ -98,6 +98,25 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 -- ============================================
+-- conversation_sessions: Per-session metadata
+-- (title, pinning). One row per session_id.
+-- ============================================
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+    session_id  TEXT PRIMARY KEY,
+    title       TEXT,
+    is_pinned   INTEGER DEFAULT 0,
+    pinned_at   TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
+-- Backfill: ensure every existing conversation session has a metadata row.
+INSERT OR IGNORE INTO conversation_sessions (session_id, created_at, updated_at)
+SELECT session_id, MIN(created_at), MAX(created_at)
+FROM conversations
+GROUP BY session_id;
+
+-- ============================================
 -- suggestions: Proactive intelligence suggestions.
 -- Generated from detected patterns.
 -- ============================================
@@ -122,5 +141,6 @@ CREATE INDEX IF NOT EXISTS idx_automations_trigger ON automations(trigger_type);
 CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_created ON conversations(created_at);
+CREATE INDEX IF NOT EXISTS idx_conv_sessions_pinned ON conversation_sessions(is_pinned, pinned_at);
 CREATE INDEX IF NOT EXISTS idx_skills_type ON skills(skill_type);
 CREATE INDEX IF NOT EXISTS idx_suggestions_dismissed ON suggestions(dismissed);

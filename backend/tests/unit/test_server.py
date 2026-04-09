@@ -211,6 +211,105 @@ def test_conversation_load_limit_clamped(client):
     assert "messages" in data
 
 
+def test_conversation_list_returns_title_field(client):
+    """List should include a title field even when null."""
+    _rpc(client, "neo.execute", {"command": "hi", "session_id": "list-title"})
+    r = _rpc(client, "neo.conversation.list")
+    data = r.json()["result"]
+    assert data["sessions"]
+    assert "title" in data["sessions"][0]
+    assert "is_pinned" in data["sessions"][0]
+    assert "first_user_message" in data["sessions"][0]
+
+
+def test_conversation_rename(client):
+    _rpc(client, "neo.execute", {"command": "hi", "session_id": "rename-s"})
+    r = _rpc(client, "neo.conversation.rename",
+             {"session_id": "rename-s", "title": "My Title"})
+    data = r.json()["result"]
+    assert data["ok"] is True
+    assert data["title"] == "My Title"
+
+    lst = _rpc(client, "neo.conversation.list").json()["result"]
+    match = next(s for s in lst["sessions"] if s["session_id"] == "rename-s")
+    assert match["title"] == "My Title"
+
+
+def test_conversation_rename_missing_title(client):
+    r = _rpc(client, "neo.conversation.rename", {"session_id": "s"})
+    assert "error" in r.json()
+
+
+def test_conversation_delete(client):
+    _rpc(client, "neo.execute", {"command": "hi", "session_id": "del-s"})
+    r = _rpc(client, "neo.conversation.delete", {"session_id": "del-s"})
+    assert r.json()["result"]["deleted"] is True
+
+    lst = _rpc(client, "neo.conversation.list").json()["result"]
+    assert all(s["session_id"] != "del-s" for s in lst["sessions"])
+
+    loaded = _rpc(client, "neo.conversation.load", {"session_id": "del-s"})
+    assert loaded.json()["result"]["messages"] == []
+
+
+def test_conversation_pin(client):
+    _rpc(client, "neo.execute", {"command": "old", "session_id": "older-s"})
+    _rpc(client, "neo.execute", {"command": "new", "session_id": "newer-s"})
+    _rpc(client, "neo.conversation.pin",
+         {"session_id": "older-s", "pinned": True})
+
+    lst = _rpc(client, "neo.conversation.list").json()["result"]
+    # Pinned sessions must come first
+    assert lst["sessions"][0]["session_id"] == "older-s"
+    assert lst["sessions"][0]["is_pinned"] == 1
+
+
+def test_conversation_unpin(client):
+    _rpc(client, "neo.execute", {"command": "x", "session_id": "pin-unpin"})
+    _rpc(client, "neo.conversation.pin",
+         {"session_id": "pin-unpin", "pinned": True})
+    _rpc(client, "neo.conversation.pin",
+         {"session_id": "pin-unpin", "pinned": False})
+
+    lst = _rpc(client, "neo.conversation.list").json()["result"]
+    match = next(s for s in lst["sessions"] if s["session_id"] == "pin-unpin")
+    assert match["is_pinned"] == 0
+
+
+def test_conversation_search_by_content(client):
+    _rpc(client, "neo.execute",
+         {"command": "Remind me to buy groceries", "session_id": "search-1"})
+    _rpc(client, "neo.execute",
+         {"command": "Write a poem about cats", "session_id": "search-2"})
+
+    r = _rpc(client, "neo.conversation.search", {"query": "groceries"})
+    data = r.json()["result"]
+    ids = {s["session_id"] for s in data["sessions"]}
+    assert "search-1" in ids
+    assert "search-2" not in ids
+
+
+def test_conversation_search_empty_query_returns_all(client):
+    _rpc(client, "neo.execute", {"command": "hi", "session_id": "se-all-1"})
+    _rpc(client, "neo.execute", {"command": "hi", "session_id": "se-all-2"})
+
+    r = _rpc(client, "neo.conversation.search", {"query": ""})
+    ids = {s["session_id"] for s in r.json()["result"]["sessions"]}
+    assert "se-all-1" in ids
+    assert "se-all-2" in ids
+
+
+def test_conversation_generate_title(client):
+    _rpc(client, "neo.execute",
+         {"command": "Summarize this book", "session_id": "gen-title"})
+    r = _rpc(client, "neo.conversation.generate_title",
+             {"session_id": "gen-title"})
+    data = r.json()["result"]
+    assert data["session_id"] == "gen-title"
+    # Mock provider's complete() returns "Hello from mock!"
+    assert data["title"]  # non-empty
+
+
 # ---- neo.skills.* -----------------------------------------------------------
 
 def test_skills_list(client):

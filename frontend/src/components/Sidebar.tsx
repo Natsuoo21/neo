@@ -1,8 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Pencil, Pin, Search, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rpc } from "@/lib/rpc";
 import { useNeoStore, type ViewId } from "@/stores/neoStore";
-import type { ConversationListResult, ConversationLoadResult } from "@/types/rpc";
+import type {
+  ConversationListResult,
+  ConversationLoadResult,
+  ConversationSearchResult,
+  ConversationSession,
+} from "@/types/rpc";
 import type { ChatMessage } from "@/stores/neoStore";
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: string }[] = [
@@ -23,10 +29,17 @@ export default function Sidebar() {
   const connected = useNeoStore((s) => s.connected);
   const sessions = useNeoStore((s) => s.sessions);
   const setSessions = useNeoStore((s) => s.setSessions);
+  const updateSession = useNeoStore((s) => s.updateSession);
+  const removeSession = useNeoStore((s) => s.removeSession);
   const sessionId = useNeoStore((s) => s.sessionId);
   const setSessionId = useNeoStore((s) => s.setSessionId);
   const setMessages = useNeoStore((s) => s.setMessages);
   const setSidebarMobileOpen = useNeoStore((s) => s.setSidebarMobileOpen);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const closeMobile = () => setSidebarMobileOpen(false);
 
@@ -37,6 +50,32 @@ export default function Sidebar() {
       .then((res) => setSessions(res.sessions))
       .catch(console.error);
   }, [connected, setSessions]);
+
+  // Debounced search: switch between list and search RPCs
+  useEffect(() => {
+    if (!connected) return;
+    const timer = setTimeout(() => {
+      const q = searchQuery.trim();
+      if (!q) {
+        rpc<ConversationListResult>("neo.conversation.list")
+          .then((res) => setSessions(res.sessions))
+          .catch(console.error);
+      } else {
+        rpc<ConversationSearchResult>("neo.conversation.search", { query: q })
+          .then((res) => setSessions(res.sessions))
+          .catch(console.error);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, connected, setSessions]);
+
+  // Focus edit input when entering rename mode
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
 
   const loadSession = async (sid: string) => {
     try {
@@ -60,8 +99,71 @@ export default function Sidebar() {
     }
   };
 
-  // Group sessions by date
-  const groupedSessions = groupSessionsByDate(sessions.slice(0, 20));
+  const startRename = (s: ConversationSession) => {
+    setEditingId(s.session_id);
+    setEditValue(s.title || s.first_user_message?.slice(0, 50) || "");
+  };
+
+  const commitRename = async (sid: string) => {
+    const title = editValue.trim();
+    setEditingId(null);
+    if (!title) return;
+    updateSession(sid, { title });
+    try {
+      await rpc("neo.conversation.rename", { session_id: sid, title });
+    } catch (err) {
+      console.error("Failed to rename session:", err);
+      // Refetch on error to recover the real state
+      rpc<ConversationListResult>("neo.conversation.list")
+        .then((res) => setSessions(res.sessions))
+        .catch(console.error);
+    }
+  };
+
+  const handleDelete = async (s: ConversationSession) => {
+    const label = s.title || s.first_user_message?.slice(0, 30) || "this chat";
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    removeSession(s.session_id);
+    if (sessionId === s.session_id) {
+      clearMessages();
+    }
+    try {
+      await rpc("neo.conversation.delete", { session_id: s.session_id });
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+      rpc<ConversationListResult>("neo.conversation.list")
+        .then((res) => setSessions(res.sessions))
+        .catch(console.error);
+    }
+  };
+
+  const handlePin = async (s: ConversationSession) => {
+    const newPinned = s.is_pinned ? 0 : 1;
+    updateSession(s.session_id, {
+      is_pinned: newPinned as 0 | 1,
+      pinned_at: newPinned ? new Date().toISOString() : null,
+    });
+    try {
+      await rpc("neo.conversation.pin", {
+        session_id: s.session_id,
+        pinned: Boolean(newPinned),
+      });
+      // Refetch to get authoritative sort order
+      const res = await rpc<ConversationListResult>("neo.conversation.list");
+      setSessions(res.sessions);
+    } catch (err) {
+      console.error("Failed to pin session:", err);
+    }
+  };
+
+  // Split pinned vs non-pinned; group non-pinned by date
+  const visibleSessions = sessions.slice(0, 30);
+  const pinnedSessions = visibleSessions.filter((s) => s.is_pinned);
+  const nonPinnedSessions = visibleSessions.filter((s) => !s.is_pinned);
+  const groupedNonPinned = groupSessionsByDate(nonPinnedSessions);
+  const groups: SessionGroup[] = pinnedSessions.length
+    ? [{ label: "Pinned", sessions: pinnedSessions }, ...groupedNonPinned]
+    : groupedNonPinned;
 
   return (
     <aside
@@ -117,34 +219,118 @@ export default function Sidebar() {
         {!collapsed && <div className="h-px w-10/12 mx-auto bg-white/5 my-4"></div>}
       </nav>
 
+      {/* Search input */}
+      {!collapsed && (
+        <div className="px-4 mb-3">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats…"
+              className="w-full bg-surface-container-low/40 pl-9 pr-3 py-2 rounded-xl text-sm text-on-surface placeholder:text-slate-500 border border-white/5 outline-none focus:border-primary/40 transition-colors"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Conversation history */}
-      {!collapsed && sessions.length > 0 && (
-        <div className="flex-1 overflow-y-auto px-4 space-y-4">
-          {groupedSessions.map((group) => (
+      {!collapsed && groups.length > 0 && (
+        <div className="flex-1 overflow-y-auto px-4 space-y-4 custom-scrollbar">
+          {groups.map((group) => (
             <div key={group.label} className="space-y-2">
-              <h3 className="text-[10px] font-bold text-slate-500 tracking-[0.2em] uppercase">
+              <h3 className="text-[10px] font-bold text-slate-500 tracking-[0.2em] uppercase flex items-center gap-1">
+                {group.label === "Pinned" && <Pin className="w-3 h-3" />}
                 {group.label}
               </h3>
               <div className="space-y-1">
-                {group.sessions.map((s) => (
-                  <div
-                    key={s.session_id}
-                    onClick={() => loadSession(s.session_id)}
-                    className={cn(
-                      "p-3 rounded-2xl transition-colors cursor-pointer group",
-                      sessionId === s.session_id
-                        ? "bg-white/10"
-                        : "bg-surface-container-low/40 hover:bg-white/5"
-                    )}
-                  >
-                    <p className="text-sm font-headline tracking-wide text-on-surface-variant group-hover:text-on-surface transition-colors line-clamp-1">
-                      {s.preview || s.session_id.slice(0, 12) + "..."}
-                    </p>
-                    <span className="text-[10px] text-slate-500 font-mono mt-1 block">
-                      {formatSessionTime(s.last_message_at)}
-                    </span>
-                  </div>
-                ))}
+                {group.sessions.map((s) => {
+                  const isEditing = editingId === s.session_id;
+                  const displayTitle =
+                    s.title ||
+                    s.first_user_message?.slice(0, 50) ||
+                    `Chat ${s.session_id.slice(0, 6)}`;
+                  return (
+                    <div
+                      key={s.session_id}
+                      onClick={() => !isEditing && loadSession(s.session_id)}
+                      className={cn(
+                        "p-3 rounded-2xl transition-colors cursor-pointer group relative",
+                        sessionId === s.session_id
+                          ? "bg-white/10"
+                          : "bg-surface-container-low/40 hover:bg-white/5"
+                      )}
+                    >
+                      {isEditing ? (
+                        <input
+                          ref={editInputRef}
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={() => commitRename(s.session_id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitRename(s.session_id);
+                            } else if (e.key === "Escape") {
+                              setEditingId(null);
+                            }
+                          }}
+                          className="w-full bg-transparent text-sm font-headline tracking-wide text-on-surface outline-none border-b border-primary/40"
+                        />
+                      ) : (
+                        <p className="text-sm font-headline tracking-wide text-on-surface-variant group-hover:text-on-surface transition-colors line-clamp-1 pr-16">
+                          {displayTitle}
+                        </p>
+                      )}
+                      <span className="text-[10px] text-slate-500 font-mono mt-1 block">
+                        {formatSessionTime(s.last_message_at)}
+                      </span>
+
+                      {!isEditing && (
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 bg-background/60 backdrop-blur-sm rounded-lg p-0.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePin(s);
+                            }}
+                            title={s.is_pinned ? "Unpin" : "Pin"}
+                            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-primary transition-colors"
+                          >
+                            <Pin
+                              className={cn(
+                                "w-3 h-3",
+                                s.is_pinned && "fill-primary text-primary"
+                              )}
+                            />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRename(s);
+                            }}
+                            title="Rename"
+                            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-on-surface transition-colors"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(s);
+                            }}
+                            title="Delete"
+                            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-error transition-colors"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -152,7 +338,7 @@ export default function Sidebar() {
       )}
 
       {/* Spacer when collapsed or no sessions */}
-      {(collapsed || sessions.length === 0) && <div className="flex-1" />}
+      {(collapsed || groups.length === 0) && <div className="flex-1" />}
 
       {/* Footer: collapse toggle + connection status */}
       <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between px-4 pb-2">
@@ -185,10 +371,10 @@ export default function Sidebar() {
 
 interface SessionGroup {
   label: string;
-  sessions: Array<{ session_id: string; last_message_at: string; message_count: number; preview?: string }>;
+  sessions: ConversationSession[];
 }
 
-function groupSessionsByDate(sessions: Array<{ session_id: string; last_message_at: string; message_count: number; preview?: string }>): SessionGroup[] {
+function groupSessionsByDate(sessions: ConversationSession[]): SessionGroup[] {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today.getTime() - 86400000);

@@ -58,8 +58,9 @@ class TestSchema:
         init_schema(db_path)
         tables = get_tables(db_path)
         expected = [
-            "action_log", "automations", "conversations", "projects",
-            "skills", "suggestions", "user_profile",
+            "action_log", "automations", "conversation_sessions",
+            "conversations", "projects", "skills", "suggestions",
+            "user_profile",
         ]
         assert sorted(tables) == expected
 
@@ -67,7 +68,7 @@ class TestSchema:
         init_schema(db_path)
         init_schema(db_path)  # Run again — should not error
         tables = get_tables(db_path)
-        assert len(tables) == 7
+        assert len(tables) == 8
 
     def test_wal_mode_enabled(self, db_path):
         init_schema(db_path)

@@ -61,6 +61,8 @@ interface NeoState {
   // Sessions list
   sessions: ConversationSession[];
   setSessions: (s: ConversationSession[]) => void;
+  updateSession: (id: string, patch: Partial<ConversationSession>) => void;
+  removeSession: (id: string) => void;
 
   // Last execution result (floating bar)
   lastResult: ExecuteResult | null;
@@ -148,6 +150,16 @@ export const useNeoStore = create<NeoState>((set) => ({
   // Sessions
   sessions: [],
   setSessions: (s) => set({ sessions: s }),
+  updateSession: (id, patch) =>
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.session_id === id ? { ...sess, ...patch } : sess,
+      ),
+    })),
+  removeSession: (id) =>
+    set((s) => ({
+      sessions: s.sessions.filter((sess) => sess.session_id !== id),
+    })),
 
   // Result
   lastResult: null,

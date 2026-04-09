@@ -40,8 +40,10 @@ from neo.memory.db import get_session, init_schema
 from neo.memory.models import (
     accept_suggestion,
     add_message,
+    count_messages,
     create_automation,
     delete_automation,
+    delete_session,
     detect_patterns,
     disable_automation,
     dismiss_suggestion,
@@ -50,8 +52,14 @@ from neo.memory.models import (
     get_automation,
     get_conversation,
     get_recent_actions,
+    get_session_row,
     get_stats,
     get_user_profile,
+    list_sessions,
+    pin_session,
+    rename_session,
+    search_sessions,
+    upsert_session,
     upsert_user_profile,
 )
 from neo.memory.seed import seed_user_profile
@@ -184,6 +192,43 @@ def _clamp_limit(value: Any, default: int = 50, maximum: int = 500) -> int:
     except (TypeError, ValueError):
         return default
     return max(1, min(n, maximum))
+
+
+_TITLE_SYSTEM_PROMPT = (
+    "Summarize the user's message into a concise 5-8 word title. "
+    "No quotes, no trailing punctuation. Output only the title text."
+)
+
+
+def _clean_title(raw: str) -> str:
+    """Post-process an LLM-generated title: strip quotes, clamp length."""
+    title = (raw or "").strip().splitlines()[0] if raw else ""
+    title = title.strip().strip('"').strip("'").strip()
+    # Remove trailing punctuation
+    while title and title[-1] in ".!?;:,":
+        title = title[:-1]
+    return title[:80]
+
+
+def _llm_generate_title(first_user_message: str) -> str:
+    """Generate a short title via the cheapest available LLM provider.
+
+    Falls back to a heuristic (first 50 chars) on any provider error.
+    Always returns a non-empty string as long as the input is non-empty.
+    """
+    heuristic = first_user_message.strip()[:50] or "New chat"
+    provider = select_provider(_registry, LOCAL)
+    if provider is None:
+        return heuristic
+
+    user_text = first_user_message.strip()[:400]
+    try:
+        raw = _shared_loop.run(provider.complete(_TITLE_SYSTEM_PROMPT, user_text))
+        cleaned = _clean_title(raw)
+        return cleaned or heuristic
+    except Exception as exc:  # noqa: BLE001 — title is best-effort
+        logger.warning("Title generation failed: %s", exc)
+        return heuristic
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +588,7 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
             )
 
         add_message(conn, session_id, "user", user_command)
+        needs_title = False
         if result and result["status"] == "success":
             add_message(
                 conn,
@@ -551,6 +597,36 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
                 result["message"],
                 model_used=result["model_used"],
             )
+            upsert_session(conn, session_id)
+            # Trigger auto-title if this was the first exchange in the session.
+            row = get_session_row(conn, session_id)
+            total = count_messages(conn, session_id)
+            needs_title = row is not None and not row.get("title") and total == 2
+
+    if needs_title:
+        # Fire-and-forget so the user's response isn't delayed.
+        import threading
+
+        def _title_job(sid: str, first_user: str) -> None:
+            try:
+                title = _llm_generate_title(first_user)
+                with get_session(_db_path) as job_conn:
+                    # Re-check: skip if the user already set a title manually.
+                    current = get_session_row(job_conn, sid)
+                    if current is not None and not current.get("title"):
+                        rename_session(job_conn, sid, title)
+                        broadcast_sse_event(
+                            {"type": "session_updated", "session_id": sid}
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Auto-title background job failed: %s", exc)
+
+        threading.Thread(
+            target=_title_job,
+            args=(session_id, user_command),
+            daemon=True,
+            name="neo-auto-title",
+        ).start()
 
     if result is None:
         result = {
@@ -596,21 +672,13 @@ async def _rpc_conversation_new(_params: dict) -> dict:
     return {"session_id": session_id}
 
 
-async def _rpc_conversation_list(_params: dict) -> dict:
-    """List recent conversation sessions."""
+async def _rpc_conversation_list(params: dict) -> dict:
+    """List recent conversation sessions (pinned first)."""
+    limit = _clamp_limit(params.get("limit", 50))
+
     def _query():
         with get_session(_db_path) as conn:
-            rows = conn.execute(
-                """SELECT session_id,
-                          MIN(created_at) AS started_at,
-                          MAX(created_at) AS last_message_at,
-                          COUNT(*) AS message_count
-                   FROM conversations
-                   GROUP BY session_id
-                   ORDER BY MAX(created_at) DESC
-                   LIMIT 50"""
-            ).fetchall()
-            return [dict(r) for r in rows]
+            return list_sessions(conn, limit=limit)
 
     sessions = await asyncio.to_thread(_query)
     return {"sessions": sessions}
@@ -630,6 +698,94 @@ async def _rpc_conversation_load(params: dict) -> dict:
 
     messages = await asyncio.to_thread(_query)
     return {"session_id": session_id, "messages": messages}
+
+
+async def _rpc_conversation_rename(params: dict) -> dict:
+    """Rename a conversation session."""
+    session_id = params.get("session_id", "")
+    title = (params.get("title") or "").strip()
+    if not session_id:
+        raise ValueError("Missing 'session_id' parameter")
+    if not title:
+        raise ValueError("Missing 'title' parameter")
+    if len(title) > 200:
+        title = title[:200]
+
+    def _update():
+        with get_session(_db_path) as conn:
+            return rename_session(conn, session_id, title)
+
+    ok = await asyncio.to_thread(_update)
+    return {"ok": ok, "session_id": session_id, "title": title}
+
+
+async def _rpc_conversation_delete(params: dict) -> dict:
+    """Delete a conversation session and all of its messages."""
+    session_id = params.get("session_id", "")
+    if not session_id:
+        raise ValueError("Missing 'session_id' parameter")
+
+    def _delete():
+        with get_session(_db_path) as conn:
+            return delete_session(conn, session_id)
+
+    deleted = await asyncio.to_thread(_delete)
+    return {"deleted": deleted, "session_id": session_id}
+
+
+async def _rpc_conversation_pin(params: dict) -> dict:
+    """Pin or unpin a conversation session."""
+    session_id = params.get("session_id", "")
+    pinned = bool(params.get("pinned", True))
+    if not session_id:
+        raise ValueError("Missing 'session_id' parameter")
+
+    def _update():
+        with get_session(_db_path) as conn:
+            return pin_session(conn, session_id, pinned)
+
+    ok = await asyncio.to_thread(_update)
+    return {"ok": ok, "session_id": session_id, "pinned": pinned}
+
+
+async def _rpc_conversation_search(params: dict) -> dict:
+    """Search conversation sessions by title or message content."""
+    query = str(params.get("query", ""))
+    limit = _clamp_limit(params.get("limit", 50))
+
+    def _query():
+        with get_session(_db_path) as conn:
+            return search_sessions(conn, query, limit=limit)
+
+    sessions = await asyncio.to_thread(_query)
+    return {"sessions": sessions, "query": query}
+
+
+async def _rpc_conversation_generate_title(params: dict) -> dict:
+    """Generate (or regenerate) an LLM title for a session.
+
+    Synchronous: waits for the provider call to finish and returns the title.
+    """
+    session_id = params.get("session_id", "")
+    if not session_id:
+        raise ValueError("Missing 'session_id' parameter")
+
+    def _generate() -> str:
+        with get_session(_db_path) as conn:
+            history = get_conversation(conn, session_id, limit=5)
+        first_user = next(
+            (m["content"] for m in history if m["role"] == "user"), ""
+        )
+        if not first_user:
+            return ""
+        title = _llm_generate_title(first_user)
+        with get_session(_db_path) as conn:
+            rename_session(conn, session_id, title)
+        return title
+
+    title = await asyncio.to_thread(_generate)
+    broadcast_sse_event({"type": "session_updated", "session_id": session_id})
+    return {"session_id": session_id, "title": title}
 
 
 async def _rpc_skills_list(_params: dict) -> dict:
@@ -1455,6 +1611,11 @@ _RPC_METHODS: dict[str, Any] = {
     "neo.conversation.new": _rpc_conversation_new,
     "neo.conversation.list": _rpc_conversation_list,
     "neo.conversation.load": _rpc_conversation_load,
+    "neo.conversation.rename": _rpc_conversation_rename,
+    "neo.conversation.delete": _rpc_conversation_delete,
+    "neo.conversation.pin": _rpc_conversation_pin,
+    "neo.conversation.search": _rpc_conversation_search,
+    "neo.conversation.generate_title": _rpc_conversation_generate_title,
     "neo.skills.list": _rpc_skills_list,
     "neo.skills.toggle": _rpc_skills_toggle,
     "neo.skills.create": _rpc_skills_create,
