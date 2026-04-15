@@ -169,7 +169,10 @@ class NeoFileWatcher:
             self._handlers[automation_id] = (handler, watch)
             logger.info(
                 "Watching %s for automation %d (pattern=%s, events=%s)",
-                path, automation_id, pattern, event_types,
+                path,
+                automation_id,
+                pattern,
+                event_types,
             )
         except (FileNotFoundError, OSError) as e:
             logger.error("Failed to watch %s for automation %d: %s", path, automation_id, e)
@@ -190,11 +193,14 @@ class NeoFileWatcher:
         """Handle a matched file event by executing the automation command."""
         logger.info(
             "File event: %s %s (automation %d)",
-            event.event_type, src_path, automation_id,
+            event.event_type,
+            src_path,
+            automation_id,
         )
         # Execute the automation command via the callback
         with get_session(self._db_path) as conn:
             from neo.memory.models import get_automation
+
             auto = get_automation(conn, automation_id)
             if auto and auto.get("is_enabled"):
                 self._execute_callback(automation_id, auto["command"])

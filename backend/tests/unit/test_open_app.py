@@ -1,6 +1,6 @@
 """Tests for the open_app tool module."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from neo.tools.open_app import (
     get_platform,
     open_app,
 )
-
 
 # ============================================
 # Platform detection

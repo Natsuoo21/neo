@@ -21,11 +21,10 @@ def _check_pyttsx3() -> Any:
     """Lazily import pyttsx3, raising clear error if unavailable."""
     try:
         import pyttsx3
+
         return pyttsx3
     except ImportError:
-        raise ImportError(
-            "pyttsx3 is not installed. Install it with: pip install pyttsx3"
-        )
+        raise ImportError("pyttsx3 is not installed. Install it with: pip install pyttsx3")
 
 
 class NeoTTS:
@@ -130,10 +129,7 @@ class NeoTTS:
             return []
         try:
             voices = self._engine.getProperty("voices")
-            return [
-                {"id": v.id, "name": v.name, "languages": getattr(v, "languages", [])}
-                for v in voices
-            ]
+            return [{"id": v.id, "name": v.name, "languages": getattr(v, "languages", [])} for v in voices]
         except Exception:
             logger.exception("Failed to list voices")
             return []

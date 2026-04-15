@@ -41,10 +41,20 @@ _DEFAULT_PLUGIN_DIR = Path.home() / ".neo" / "plugins"
 _DEFAULT_REMOTES_PATH = Path.home() / ".neo" / "remotes.json"
 
 # Allowed plugin commands for stdio (security: prevents arbitrary binary execution)
-_ALLOWED_COMMANDS = frozenset({
-    "python", "python3", "node", "deno", "bun", "npx",
-    "ruby", "perl", "java", "dotnet",
-})
+_ALLOWED_COMMANDS = frozenset(
+    {
+        "python",
+        "python3",
+        "node",
+        "deno",
+        "bun",
+        "npx",
+        "ruby",
+        "perl",
+        "java",
+        "dotnet",
+    }
+)
 
 # Plugin name validation (alphanumeric + hyphens only)
 _PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
@@ -208,7 +218,9 @@ class MCPConnection:
             self._status = "connected"
             logger.info(
                 "Connected to '%s' via %s (%d tools)",
-                self.descriptor.name, self.descriptor.transport, len(self._cached_tools),
+                self.descriptor.name,
+                self.descriptor.transport,
+                len(self._cached_tools),
             )
 
         except Exception:
@@ -244,7 +256,9 @@ class MCPConnection:
             # Attempt one reconnect
             logger.warning(
                 "Tool call failed for '%s::%s', attempting reconnect: %s",
-                self.descriptor.name, tool_name, first_err,
+                self.descriptor.name,
+                tool_name,
+                first_err,
             )
             try:
                 await self.disconnect()
@@ -337,7 +351,7 @@ class MCPHost:
         self._descriptors: dict[str, PluginDescriptor] = {}
         self._connections: dict[str, MCPConnection] = {}
         self._lock = asyncio.Lock()
-        self._observer: Observer | None = None
+        self._observer: Observer | None = None  # type: ignore[valid-type]
         self._health_task: asyncio.Task | None = None
 
     @property
@@ -391,7 +405,9 @@ class MCPHost:
                 if base_cmd not in _ALLOWED_COMMANDS:
                     logger.warning(
                         "Plugin %r uses disallowed command %r (allowed: %s)",
-                        data["name"], data["command"], ", ".join(sorted(_ALLOWED_COMMANDS)),
+                        data["name"],
+                        data["command"],
+                        ", ".join(sorted(_ALLOWED_COMMANDS)),
                     )
                     continue
 
@@ -441,10 +457,12 @@ class MCPHost:
         plugins = []
         for name, desc in self._descriptors.items():
             conn = self._connections.get(name)
-            plugins.append({
-                **desc.to_dict(),
-                "status": conn.status if conn else "stopped",
-            })
+            plugins.append(
+                {
+                    **desc.to_dict(),
+                    "status": conn.status if conn else "stopped",
+                }
+            )
         return plugins
 
     async def start_plugin(self, name: str) -> bool:
@@ -577,7 +595,7 @@ class MCPHost:
         """
         from neo.plugins.remotes import add_remote as _add_remote
 
-        config = {
+        config: dict[str, Any] = {
             "name": name,
             "transport": transport,
             "url": url,

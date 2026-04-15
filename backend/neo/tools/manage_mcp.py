@@ -6,7 +6,6 @@ async access to the global ``MCPHost`` instance.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -45,9 +44,7 @@ async def manage_mcp(
     """
     action = action.strip().lower()
     if action not in _VALID_ACTIONS:
-        raise ValueError(
-            f"Invalid action '{action}'. Must be one of: {', '.join(sorted(_VALID_ACTIONS))}"
-        )
+        raise ValueError(f"Invalid action '{action}'. Must be one of: {', '.join(sorted(_VALID_ACTIONS))}")
 
     if action == "list":
         return _format_list(host)
@@ -149,6 +146,7 @@ async def _add(
     # Save token if provided
     if token_value and token_env:
         from neo.plugins.secrets import set_secret
+
         set_secret(token_env, token_value)
 
     auth = None
@@ -166,11 +164,7 @@ async def _add(
 
     if ok:
         tools = host.get_plugin_tools(name)
-        return (
-            f"Added and connected to '{name}' ({transport}).\n"
-            f"URL: {url}\n"
-            f"Tools available: {len(tools)}"
-        )
+        return f"Added and connected to '{name}' ({transport}).\nURL: {url}\nTools available: {len(tools)}"
     else:
         return f"Added '{name}' but failed to connect. You can try connecting later."
 

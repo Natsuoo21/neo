@@ -30,6 +30,7 @@ _CREDENTIAL_TIMEOUT_S = 30
 @contextmanager
 def _timeout(seconds: int):
     """Context manager that raises TimeoutError after N seconds (Unix only)."""
+
     def _handler(signum, frame):
         raise TimeoutError(f"Operation timed out after {seconds}s")
 

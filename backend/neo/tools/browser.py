@@ -279,6 +279,7 @@ def _run_async_in_thread(coro_fn, timeout: float = 60):
         coro_fn: Zero-argument callable returning a coroutine.
         timeout: Max seconds to wait for the result (default 60).
     """
+
     def _thread_target():
         loop = asyncio.new_event_loop()
         try:
@@ -296,6 +297,7 @@ def browse_url(url: str, extract_selector: str = "body") -> str:
 
     Sync wrapper for use by the orchestrator's tool dispatch.
     """
+
     async def _run() -> str:
         controller = BrowserController()
         try:
@@ -312,6 +314,7 @@ def take_screenshot(url: str, output_path: str = "") -> str:
 
     Sync wrapper for use by the orchestrator's tool dispatch.
     """
+
     async def _run() -> str:
         controller = BrowserController()
         try:
@@ -328,12 +331,15 @@ def fill_form(url: str, fields: dict[str, str], submit_selector: str = "") -> st
 
     Sync wrapper for use by the orchestrator's tool dispatch.
     """
+
     async def _run() -> str:
         controller = BrowserController()
         try:
             await controller.start()
             return await controller.fill_form(
-                url, fields, submit_selector or None,
+                url,
+                fields,
+                submit_selector or None,
             )
         finally:
             await controller.stop()
@@ -346,6 +352,7 @@ def download_file(url: str, target_dir: str = "") -> str:
 
     Sync wrapper for use by the orchestrator's tool dispatch.
     """
+
     async def _run() -> str:
         controller = BrowserController()
         try:
@@ -370,13 +377,18 @@ def monitor_page(
     Sync wrapper for use by the orchestrator's tool dispatch.
     Returns a JSON string with the monitoring result.
     """
+
     async def _run() -> dict:
         controller = BrowserController()
         try:
             await controller.start()
             return await controller.monitor_page(
-                url, selector, condition, reference_value,
-                check_interval_s, max_checks,
+                url,
+                selector,
+                condition,
+                reference_value,
+                check_interval_s,
+                max_checks,
             )
         finally:
             await controller.stop()

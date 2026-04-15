@@ -12,6 +12,7 @@ and saved to the ``community/`` directory.
 import logging
 import os
 import re
+import sqlite3
 import tempfile
 
 import httpx
@@ -39,9 +40,7 @@ def to_raw_url(url: str) -> str | None:
         return url
 
     # github.com/user/repo/blob/branch/path/to/file.md
-    m = re.match(
-        r"https?://github\.com/([^/]+)/([^/]+)/blob/(.+)", url
-    )
+    m = re.match(r"https?://github\.com/([^/]+)/([^/]+)/blob/(.+)", url)
     if m:
         user, repo, rest = m.group(1), m.group(2), m.group(3)
         return f"{_RAW_BASE}/{user}/{repo}/{rest}"
@@ -51,9 +50,7 @@ def to_raw_url(url: str) -> str | None:
 
 def _parse_tree_url(url: str) -> tuple[str, str, str] | None:
     """Parse ``github.com/user/repo/tree/branch/path`` into (user, repo, branch/path)."""
-    m = re.match(
-        r"https?://github\.com/([^/]+)/([^/]+)/tree/(.+)", url
-    )
+    m = re.match(r"https?://github\.com/([^/]+)/([^/]+)/tree/(.+)", url)
     if m:
         return m.group(1), m.group(2), m.group(3)
     return None
@@ -75,9 +72,7 @@ def download_and_validate(url: str, *, timeout: float = 30) -> dict:
     content = resp.text
 
     # Write to temp file for parse_skill_file (it reads from disk)
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", delete=False, encoding="utf-8"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tmp:
         tmp.write(content)
         tmp_path = tmp.name
 
@@ -118,7 +113,7 @@ def _save_to_community(parsed: dict) -> str:
 
 def import_single_file(
     url: str,
-    conn: "sqlite3.Connection",  # noqa: F821
+    conn: sqlite3.Connection,
     *,
     timeout: float = 30,
 ) -> dict | None:
@@ -152,7 +147,7 @@ def import_single_file(
 
 def import_directory(
     url: str,
-    conn: "sqlite3.Connection",  # noqa: F821
+    conn: sqlite3.Connection,
     *,
     timeout: float = 30,
 ) -> list[dict]:
@@ -219,7 +214,7 @@ def import_directory(
 
 def import_from_github(
     url: str,
-    conn: "sqlite3.Connection",  # noqa: F821
+    conn: sqlite3.Connection,
     *,
     timeout: float = 30,
 ) -> list[dict]:

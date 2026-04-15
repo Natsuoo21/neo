@@ -108,10 +108,7 @@ def get_available_skill_commands(conn: sqlite3.Connection) -> list[dict]:
     Used to populate the system prompt with available slash commands.
     """
     enabled = get_enabled_skills(conn)
-    return [
-        {"name": s["name"], "description": s.get("description", "")}
-        for s in enabled
-    ]
+    return [{"name": s["name"], "description": s.get("description", "")} for s in enabled]
 
 
 def delete_skill(conn: sqlite3.Connection, name: str) -> bool:
@@ -122,9 +119,7 @@ def delete_skill(conn: sqlite3.Connection, name: str) -> bool:
     Returns:
         True if deleted, False if not found or protected.
     """
-    row = conn.execute(
-        "SELECT file_path, skill_type FROM skills WHERE name = ?", (name,)
-    ).fetchone()
+    row = conn.execute("SELECT file_path, skill_type FROM skills WHERE name = ?", (name,)).fetchone()
     if not row:
         return False
 

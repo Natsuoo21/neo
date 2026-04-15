@@ -100,6 +100,7 @@ class TestUpdateChecker:
     @patch("neo.updater.httpx.get")
     def test_network_error(self, mock_get):
         import httpx
+
         mock_get.side_effect = httpx.ConnectError("Connection refused")
 
         checker = UpdateChecker()

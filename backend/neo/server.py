@@ -113,13 +113,13 @@ class _SharedLoop:
 
     def __init__(self) -> None:
         import threading
+
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
 
     def run(self, coro):  # type: ignore[no-untyped-def]
         """Submit a coroutine to the shared loop and block until it completes."""
-        import concurrent.futures
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result()
 
@@ -144,6 +144,7 @@ def _update_check_job() -> None:
         if info:
             broadcast_sse_event({"type": "update_available", **info})
 
+
 # Allowed CORS origins (Tauri dev + production)
 _CORS_ORIGINS = [
     "http://localhost:1420",
@@ -156,6 +157,7 @@ _CORS_ORIGINS = [
 # ---------------------------------------------------------------------------
 # Bootstrap helpers (mirrors main.py logic)
 # ---------------------------------------------------------------------------
+
 
 def _bootstrap(db_path: str | None = None) -> str:
     """Load env, init DB, seed data, sync skills. Returns db_path."""
@@ -235,6 +237,7 @@ def _llm_generate_title(first_user_message: str) -> str:
 # JSON-RPC 2.0 helpers
 # ---------------------------------------------------------------------------
 
+
 class RpcRequest(BaseModel):
     jsonrpc: str = "2.0"
     method: str
@@ -264,6 +267,7 @@ _INTERNAL_ERROR = -32603
 # ---------------------------------------------------------------------------
 # FastAPI app with lifespan
 # ---------------------------------------------------------------------------
+
 
 def broadcast_sse_event(event_data: dict) -> None:
     """Push an event to all connected SSE subscribers (thread-safe).
@@ -309,6 +313,7 @@ async def lifespan(app: FastAPI):
 
     if not _registry:
         from neo.llm.mock import MockProvider
+
         logger.warning("No LLM providers available — running in offline/mock mode.")
         _registry[CLAUDE] = MockProvider(
             text_response="I'm running in offline mode. Set an API key to enable AI.",
@@ -318,6 +323,7 @@ async def lifespan(app: FastAPI):
     # Start scheduler if available
     try:
         from neo.automations.scheduler import NeoScheduler
+
         _scheduler = NeoScheduler(_db_path, _registry, broadcast_fn=broadcast_sse_event)
         _scheduler.start()
         logger.info("Automation scheduler started")
@@ -325,14 +331,19 @@ async def lifespan(app: FastAPI):
         # Background job: generate suggestions every 6 hours
         try:
             _scheduler._scheduler.add_job(
-                "neo.server:_suggestion_job", "interval", hours=6,
-                id="__neo_suggestions", replace_existing=True,
+                "neo.server:_suggestion_job",
+                "interval",
+                hours=6,
+                id="__neo_suggestions",
+                replace_existing=True,
                 misfire_grace_time=3600,
             )
             _scheduler._scheduler.add_job(
-                "neo.server:_suggestion_job", "date",
+                "neo.server:_suggestion_job",
+                "date",
                 run_date=datetime.now() + timedelta(seconds=30),
-                id="__neo_suggestions_initial", replace_existing=True,
+                id="__neo_suggestions_initial",
+                replace_existing=True,
             )
             logger.info("Suggestion generation job registered (every 6h)")
         except Exception:
@@ -343,14 +354,19 @@ async def lifespan(app: FastAPI):
             _update_checker = UpdateChecker()
 
             _scheduler._scheduler.add_job(
-                "neo.server:_update_check_job", "interval", hours=168,
-                id="__neo_update_check", replace_existing=True,
+                "neo.server:_update_check_job",
+                "interval",
+                hours=168,
+                id="__neo_update_check",
+                replace_existing=True,
                 misfire_grace_time=86400,
             )
             _scheduler._scheduler.add_job(
-                "neo.server:_update_check_job", "date",
+                "neo.server:_update_check_job",
+                "date",
                 run_date=datetime.now() + timedelta(seconds=60),
-                id="__neo_update_check_initial", replace_existing=True,
+                id="__neo_update_check_initial",
+                replace_existing=True,
             )
             logger.info("Update checker job registered (weekly)")
         except Exception:
@@ -437,6 +453,7 @@ app.add_middleware(
 # Routes
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "providers": list(_registry.keys())}
@@ -483,9 +500,7 @@ async def rpc_endpoint(request: Request):
 
     handler = _RPC_METHODS.get(req.method)
     if handler is None:
-        return JSONResponse(
-            _rpc_error(_METHOD_NOT_FOUND, f"Method not found: {req.method}", req.id)
-        )
+        return JSONResponse(_rpc_error(_METHOD_NOT_FOUND, f"Method not found: {req.method}", req.id))
 
     try:
         result = await handler(req.params or {})
@@ -503,6 +518,7 @@ async def rpc_endpoint(request: Request):
 # All DB operations use asyncio.to_thread() to avoid blocking the event loop,
 # since sqlite3 is synchronous and not thread-safe with async.
 # ---------------------------------------------------------------------------
+
 
 async def _rpc_health(_params: dict) -> dict:
     return {"status": "ok", "providers": list(_registry.keys())}
@@ -526,9 +542,14 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
 
     if provider is None:
         return {
-            "status": "error", "message": "No LLM provider available.",
-            "tool_used": "", "tool_result": None, "model_used": "",
-            "routed_tier": tier, "duration_ms": 0, "session_id": session_id,
+            "status": "error",
+            "message": "No LLM provider available.",
+            "tool_used": "",
+            "tool_result": None,
+            "model_used": "",
+            "routed_tier": tier,
+            "duration_ms": 0,
+            "session_id": session_id,
         }
 
     # Run async process() on the shared background loop so that LLM provider
@@ -551,8 +572,12 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
                 return {
                     "status": "error",
                     "message": f"Unknown skill: /{slash_slug}. Type /skills to see available commands.",
-                    "tool_used": "", "tool_result": None, "model_used": "",
-                    "routed_tier": tier, "duration_ms": 0, "session_id": session_id,
+                    "tool_used": "",
+                    "tool_result": None,
+                    "model_used": "",
+                    "routed_tier": tier,
+                    "duration_ms": 0,
+                    "session_id": session_id,
                 }
 
         # No slash prefix → no skill injected (removed old auto keyword matching)
@@ -570,16 +595,18 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
 
         result = None
         for attempt_tier, attempt_provider in providers_to_try:
-            result = _shared_loop.run(process(
-                user_command,
-                attempt_provider,
-                conn,
-                skill_content,
-                skill_name=skill_name,
-                routed_tier=attempt_tier,
-                messages=messages,
-                available_skills=available_skills,
-            ))
+            result = _shared_loop.run(
+                process(
+                    user_command,
+                    attempt_provider,
+                    conn,
+                    skill_content,
+                    skill_name=skill_name,
+                    routed_tier=attempt_tier,
+                    messages=messages,
+                    available_skills=available_skills,
+                )
+            )
             if result["status"] == "success":
                 break
             logger.warning(
@@ -615,9 +642,7 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
                     current = get_session_row(job_conn, sid)
                     if current is not None and not current.get("title"):
                         rename_session(job_conn, sid, title)
-                        broadcast_sse_event(
-                            {"type": "session_updated", "session_id": sid}
-                        )
+                        broadcast_sse_event({"type": "session_updated", "session_id": sid})
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Auto-title background job failed: %s", exc)
 
@@ -662,7 +687,11 @@ async def _rpc_execute(params: dict) -> dict:
     session_id = params.get("session_id") or str(uuid.uuid4())
 
     return await asyncio.to_thread(
-        _execute_sync, command, session_id, _db_path, _registry,
+        _execute_sync,
+        command,
+        session_id,
+        _db_path,
+        _registry,
     )
 
 
@@ -773,9 +802,7 @@ async def _rpc_conversation_generate_title(params: dict) -> dict:
     def _generate() -> str:
         with get_session(_db_path) as conn:
             history = get_conversation(conn, session_id, limit=5)
-        first_user = next(
-            (m["content"] for m in history if m["role"] == "user"), ""
-        )
+        first_user = next((m["content"] for m in history if m["role"] == "user"), "")
         if not first_user:
             return ""
         title = _llm_generate_title(first_user)
@@ -790,6 +817,7 @@ async def _rpc_conversation_generate_title(params: dict) -> dict:
 
 async def _rpc_skills_list(_params: dict) -> dict:
     """List all skills (enabled and disabled)."""
+
     def _query():
         with get_session(_db_path) as conn:
             rows = conn.execute("SELECT * FROM skills ORDER BY name").fetchall()
@@ -967,6 +995,7 @@ async def _rpc_skills_remove_folder(params: dict) -> dict:
 
 async def _rpc_skills_folders(_params: dict) -> dict:
     """List currently configured extra skill folders."""
+
     def _query():
         with get_session(_db_path) as conn:
             profile = get_user_profile(conn)
@@ -996,6 +1025,7 @@ async def _rpc_actions_recent(params: dict) -> dict:
 
 async def _rpc_settings_get(_params: dict) -> dict:
     """Get user profile and settings."""
+
     def _query():
         with get_session(_db_path) as conn:
             return get_user_profile(conn)
@@ -1009,6 +1039,7 @@ async def _rpc_settings_get(_params: dict) -> dict:
 
 async def _rpc_settings_update(params: dict) -> dict:
     """Update user profile settings."""
+
     def _update():
         with get_session(_db_path) as conn:
             profile = get_user_profile(conn)
@@ -1058,10 +1089,12 @@ async def _rpc_providers_list(_params: dict) -> dict:
     """List available LLM providers."""
     providers = []
     for tier, provider in _registry.items():
-        providers.append({
-            "tier": tier,
-            "name": provider.name(),
-        })
+        providers.append(
+            {
+                "tier": tier,
+                "name": provider.name(),
+            }
+        )
     return {"providers": providers}
 
 
@@ -1072,6 +1105,7 @@ async def _rpc_providers_list(_params: dict) -> dict:
 
 async def _rpc_automation_list(_params: dict) -> dict:
     """List all automations."""
+
     def _query():
         with get_session(_db_path) as conn:
             return get_all_automations(conn)
@@ -1238,7 +1272,11 @@ async def _rpc_automation_run(params: dict) -> dict:
 
     # Fallback: execute directly through orchestrator
     result = await asyncio.to_thread(
-        _execute_sync, command, str(uuid.uuid4()), _db_path, _registry,
+        _execute_sync,
+        command,
+        str(uuid.uuid4()),
+        _db_path,
+        _registry,
     )
     return {"triggered": True, "id": aid, "result": result}
 
@@ -1302,7 +1340,9 @@ async def _rpc_suggestions_accept(params: dict) -> dict:
 async def _rpc_suggestions_generate(_params: dict) -> dict:
     """Manually trigger suggestion generation."""
     created = await asyncio.to_thread(
-        generate_suggestions, _db_path, broadcast_sse_event,
+        generate_suggestions,
+        _db_path,
+        broadcast_sse_event,
     )
     return {"created": len(created), "suggestions": created}
 
@@ -1451,12 +1491,15 @@ async def _rpc_plugin_test_connection(params: dict) -> dict:
     if not url:
         raise ValueError("Missing 'url' parameter")
 
-    desc = PluginDescriptor(None, {
-        "name": "__test__",
-        "transport": transport,
-        "url": url,
-        "auth": auth or {},
-    })
+    desc = PluginDescriptor(
+        None,
+        {
+            "name": "__test__",
+            "transport": transport,
+            "url": url,
+            "auth": auth or {},
+        },
+    )
     conn = MCPConnection(desc)
 
     try:
@@ -1514,6 +1557,7 @@ async def _rpc_voice_start(params: dict) -> dict:
     if _stt is None:
         try:
             from neo.voice.stt import WhisperSTT
+
             _stt = WhisperSTT(model_name=model, language=language)
         except ImportError as e:
             raise RuntimeError(str(e))
@@ -1534,11 +1578,13 @@ async def _rpc_voice_start(params: dict) -> dict:
         try:
             session_id = str(uuid.uuid4())
             result = _execute_sync(text, session_id, _db_path, _registry)
-            broadcast_sse_event({
-                "type": "voice_result",
-                "text": text,
-                "result": result,
-            })
+            broadcast_sse_event(
+                {
+                    "type": "voice_result",
+                    "text": text,
+                    "result": result,
+                }
+            )
             # Speak the result via TTS if available
             if _tts and result.get("status") == "success" and result.get("message"):
                 _tts.speak(result["message"][:500])
@@ -1567,12 +1613,23 @@ async def _rpc_voice_stop(_params: dict) -> dict:
 
 async def _rpc_voice_status(_params: dict) -> dict:
     """Get voice input/output status."""
-    stt_status = _stt.get_status() if _stt else {
-        "model_loaded": False, "recording": False, "wake_word_active": False,
-    }
-    tts_status = _tts.get_status() if _tts and hasattr(_tts, "get_status") else {
-        "enabled": False, "speaking": False,
-    }
+    stt_status = (
+        _stt.get_status()
+        if _stt
+        else {
+            "model_loaded": False,
+            "recording": False,
+            "wake_word_active": False,
+        }
+    )
+    tts_status = (
+        _tts.get_status()
+        if _tts and hasattr(_tts, "get_status")
+        else {
+            "enabled": False,
+            "speaking": False,
+        }
+    )
     return {
         "stt": stt_status,
         "tts": tts_status,
@@ -1593,6 +1650,7 @@ async def _rpc_voice_speak(params: dict) -> dict:
     if _tts is None:
         try:
             from neo.voice.tts import NeoTTS
+
             _tts = NeoTTS()
         except ImportError as e:
             raise RuntimeError(str(e))
@@ -1665,6 +1723,7 @@ _RPC_METHODS: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="Neo HTTP Server")

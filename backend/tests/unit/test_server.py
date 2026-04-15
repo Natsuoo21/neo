@@ -67,6 +67,7 @@ def client():
 
 # ---- Health -----------------------------------------------------------------
 
+
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
@@ -76,6 +77,7 @@ def test_health(client):
 
 
 # ---- JSON-RPC basics --------------------------------------------------------
+
 
 def _rpc(client, method, params=None, rpc_id=1):
     payload = {"jsonrpc": "2.0", "method": method, "id": rpc_id}
@@ -124,6 +126,7 @@ def test_rpc_internal_error_does_not_leak_details(client):
 
 # ---- neo.execute ------------------------------------------------------------
 
+
 def test_execute(client):
     r = _rpc(client, "neo.execute", {"command": "hello"})
     data = r.json()["result"]
@@ -158,6 +161,7 @@ def test_execute_command_too_long(client):
 
 
 # ---- neo.conversation.* -----------------------------------------------------
+
 
 def test_conversation_new(client):
     r = _rpc(client, "neo.conversation.new")
@@ -224,8 +228,7 @@ def test_conversation_list_returns_title_field(client):
 
 def test_conversation_rename(client):
     _rpc(client, "neo.execute", {"command": "hi", "session_id": "rename-s"})
-    r = _rpc(client, "neo.conversation.rename",
-             {"session_id": "rename-s", "title": "My Title"})
+    r = _rpc(client, "neo.conversation.rename", {"session_id": "rename-s", "title": "My Title"})
     data = r.json()["result"]
     assert data["ok"] is True
     assert data["title"] == "My Title"
@@ -255,8 +258,7 @@ def test_conversation_delete(client):
 def test_conversation_pin(client):
     _rpc(client, "neo.execute", {"command": "old", "session_id": "older-s"})
     _rpc(client, "neo.execute", {"command": "new", "session_id": "newer-s"})
-    _rpc(client, "neo.conversation.pin",
-         {"session_id": "older-s", "pinned": True})
+    _rpc(client, "neo.conversation.pin", {"session_id": "older-s", "pinned": True})
 
     lst = _rpc(client, "neo.conversation.list").json()["result"]
     # Pinned sessions must come first
@@ -266,10 +268,8 @@ def test_conversation_pin(client):
 
 def test_conversation_unpin(client):
     _rpc(client, "neo.execute", {"command": "x", "session_id": "pin-unpin"})
-    _rpc(client, "neo.conversation.pin",
-         {"session_id": "pin-unpin", "pinned": True})
-    _rpc(client, "neo.conversation.pin",
-         {"session_id": "pin-unpin", "pinned": False})
+    _rpc(client, "neo.conversation.pin", {"session_id": "pin-unpin", "pinned": True})
+    _rpc(client, "neo.conversation.pin", {"session_id": "pin-unpin", "pinned": False})
 
     lst = _rpc(client, "neo.conversation.list").json()["result"]
     match = next(s for s in lst["sessions"] if s["session_id"] == "pin-unpin")
@@ -277,10 +277,8 @@ def test_conversation_unpin(client):
 
 
 def test_conversation_search_by_content(client):
-    _rpc(client, "neo.execute",
-         {"command": "Remind me to buy groceries", "session_id": "search-1"})
-    _rpc(client, "neo.execute",
-         {"command": "Write a poem about cats", "session_id": "search-2"})
+    _rpc(client, "neo.execute", {"command": "Remind me to buy groceries", "session_id": "search-1"})
+    _rpc(client, "neo.execute", {"command": "Write a poem about cats", "session_id": "search-2"})
 
     r = _rpc(client, "neo.conversation.search", {"query": "groceries"})
     data = r.json()["result"]
@@ -300,10 +298,8 @@ def test_conversation_search_empty_query_returns_all(client):
 
 
 def test_conversation_generate_title(client):
-    _rpc(client, "neo.execute",
-         {"command": "Summarize this book", "session_id": "gen-title"})
-    r = _rpc(client, "neo.conversation.generate_title",
-             {"session_id": "gen-title"})
+    _rpc(client, "neo.execute", {"command": "Summarize this book", "session_id": "gen-title"})
+    r = _rpc(client, "neo.conversation.generate_title", {"session_id": "gen-title"})
     data = r.json()["result"]
     assert data["session_id"] == "gen-title"
     # Mock provider's complete() returns "Hello from mock!"
@@ -311,6 +307,7 @@ def test_conversation_generate_title(client):
 
 
 # ---- neo.skills.* -----------------------------------------------------------
+
 
 def test_skills_list(client):
     r = _rpc(client, "neo.skills.list")
@@ -345,6 +342,7 @@ def test_skills_toggle_missing_name(client):
 
 # ---- neo.actions.recent -----------------------------------------------------
 
+
 def test_actions_recent(client):
     _rpc(client, "neo.execute", {"command": "test action"})
     r = _rpc(client, "neo.actions.recent")
@@ -367,6 +365,7 @@ def test_actions_recent_invalid_limit(client):
 
 
 # ---- neo.settings.* ---------------------------------------------------------
+
 
 def test_settings_get(client):
     r = _rpc(client, "neo.settings.get")
@@ -409,6 +408,7 @@ def test_settings_update_preferences_merge(client):
 
 # ---- neo.stats -------------------------------------------------------------
 
+
 def test_stats(client):
     _rpc(client, "neo.execute", {"command": "hello"})
     r = _rpc(client, "neo.stats")
@@ -425,6 +425,7 @@ def test_stats_with_days(client):
 
 # ---- neo.patterns ----------------------------------------------------------
 
+
 def test_patterns(client):
     r = _rpc(client, "neo.patterns")
     data = r.json()["result"]
@@ -434,18 +435,24 @@ def test_patterns(client):
 
 # ---- neo.automation.run ----------------------------------------------------
 
+
 def test_automation_run(client, monkeypatch):
     """Create an automation then manually trigger it."""
-    r = _rpc(client, "neo.automation.create", {
-        "name": "Test Run",
-        "trigger_type": "schedule",
-        "command": "hello",
-        "trigger_config": {"cron": "0 * * * *"},
-    })
+    r = _rpc(
+        client,
+        "neo.automation.create",
+        {
+            "name": "Test Run",
+            "trigger_type": "schedule",
+            "command": "hello",
+            "trigger_config": {"cron": "0 * * * *"},
+        },
+    )
     auto = r.json()["result"]["automation"]
 
     # Mock scheduler to avoid nested event loops / unawaited coroutine
     from unittest.mock import MagicMock
+
     mock_scheduler = MagicMock()
     monkeypatch.setattr(srv, "_scheduler", mock_scheduler)
 
@@ -470,6 +477,7 @@ def test_automation_run_nonexistent(client):
 
 # ---- neo.providers.list ----------------------------------------------------
 
+
 def test_providers_list(client):
     r = _rpc(client, "neo.providers.list")
     data = r.json()["result"]
@@ -480,8 +488,10 @@ def test_providers_list(client):
 
 # ---- Helper function tests -------------------------------------------------
 
+
 def test_safe_json_loads():
     from neo.server import _safe_json_loads
+
     assert _safe_json_loads('{"a": 1}') == {"a": 1}
     assert _safe_json_loads("") == {}
     assert _safe_json_loads(None) == {}
@@ -491,6 +501,7 @@ def test_safe_json_loads():
 
 def test_clamp_limit():
     from neo.server import _clamp_limit
+
     assert _clamp_limit(10) == 10
     assert _clamp_limit(-5) == 1
     assert _clamp_limit(999) == 500
@@ -500,6 +511,7 @@ def test_clamp_limit():
 
 
 # ---- Update check RPC -------------------------------------------------------
+
 
 def test_update_check_no_update(client, monkeypatch):
     """neo.update.check returns available=False when up-to-date."""
@@ -540,6 +552,7 @@ def test_update_check_has_update(client, monkeypatch):
 
 # ---- Suggestions generate RPC -----------------------------------------------
 
+
 def test_suggestions_generate(client, monkeypatch):
     """neo.suggestions.generate returns created suggestions."""
     monkeypatch.setattr(srv, "generate_suggestions", lambda db, broadcast_fn=None: [])
@@ -557,7 +570,8 @@ def test_suggestions_generate_with_results(client, monkeypatch):
         {"id": 1, "pattern": "create excel", "message": "You've done this 4 times"},
     ]
     monkeypatch.setattr(
-        srv, "generate_suggestions",
+        srv,
+        "generate_suggestions",
         lambda db, broadcast_fn=None: fake_suggestions,
     )
 

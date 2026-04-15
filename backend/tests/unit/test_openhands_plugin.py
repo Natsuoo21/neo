@@ -1,8 +1,6 @@
 """Tests for the OpenHands MCP plugin server."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from neo.plugins.openhands.server import handle_request
 
@@ -39,12 +37,14 @@ class TestExecuteCode:
             "observation": {"content": "Hello, World!", "exit_code": 0},
         }
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 10,
-            "method": "tools/call",
-            "params": {"name": "execute_code", "arguments": {"code": "print('Hello, World!')"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "execute_code", "arguments": {"code": "print('Hello, World!')"}},
+            }
+        )
 
         assert resp is not None
         assert resp["result"]["content"][0]["text"] == "Hello, World!"
@@ -60,12 +60,14 @@ class TestExecuteCode:
             "observation": {"content": "", "stderr": "NameError: name 'x' is not defined", "exit_code": 1},
         }
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 11,
-            "method": "tools/call",
-            "params": {"name": "execute_code", "arguments": {"code": "print(x)"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {"name": "execute_code", "arguments": {"code": "print(x)"}},
+            }
+        )
 
         assert resp is not None
         text = resp["result"]["content"][0]["text"]
@@ -81,12 +83,14 @@ class TestExecuteShell:
             "observation": {"content": "file1.txt\nfile2.py", "exit_code": 0},
         }
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 20,
-            "method": "tools/call",
-            "params": {"name": "execute_shell", "arguments": {"command": "ls"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "tools/call",
+                "params": {"name": "execute_shell", "arguments": {"command": "ls"}},
+            }
+        )
 
         assert resp is not None
         assert "file1.txt" in resp["result"]["content"][0]["text"]
@@ -98,12 +102,14 @@ class TestReadFile:
     def test_read_file(self, mock_http):
         mock_http.return_value = {"content": "Hello from file"}
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 30,
-            "method": "tools/call",
-            "params": {"name": "read_file", "arguments": {"path": "/workspace/test.txt"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 30,
+                "method": "tools/call",
+                "params": {"name": "read_file", "arguments": {"path": "/workspace/test.txt"}},
+            }
+        )
 
         assert resp is not None
         assert resp["result"]["content"][0]["text"] == "Hello from file"
@@ -115,12 +121,14 @@ class TestWriteFile:
     def test_write_file(self, mock_http):
         mock_http.return_value = {}
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 40,
-            "method": "tools/call",
-            "params": {"name": "write_file", "arguments": {"path": "/workspace/out.txt", "content": "data"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 40,
+                "method": "tools/call",
+                "params": {"name": "write_file", "arguments": {"path": "/workspace/out.txt", "content": "data"}},
+            }
+        )
 
         assert resp is not None
         assert "Written to" in resp["result"]["content"][0]["text"]
@@ -134,16 +142,16 @@ class TestConnectionError:
     @patch("neo.plugins.openhands.server._http_request")
     @patch("neo.plugins.openhands.server._conversation_id", "test-conv")
     def test_connection_error_returns_clear_message(self, mock_http):
-        mock_http.side_effect = RuntimeError(
-            "OpenHands is not running at http://localhost:3000. Start it first."
-        )
+        mock_http.side_effect = RuntimeError("OpenHands is not running at http://localhost:3000. Start it first.")
 
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 50,
-            "method": "tools/call",
-            "params": {"name": "execute_code", "arguments": {"code": "print(1)"}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 50,
+                "method": "tools/call",
+                "params": {"name": "execute_code", "arguments": {"code": "print(1)"}},
+            }
+        )
 
         assert resp is not None
         assert resp["result"].get("isError") is True
@@ -152,12 +160,14 @@ class TestConnectionError:
 
 class TestUnknownTool:
     def test_unknown_tool_returns_error(self):
-        resp = handle_request({
-            "jsonrpc": "2.0",
-            "id": 60,
-            "method": "tools/call",
-            "params": {"name": "nonexistent", "arguments": {}},
-        })
+        resp = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 60,
+                "method": "tools/call",
+                "params": {"name": "nonexistent", "arguments": {}},
+            }
+        )
 
         assert resp is not None
         assert "error" in resp

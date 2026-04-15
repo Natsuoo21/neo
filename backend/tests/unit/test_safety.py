@@ -66,6 +66,7 @@ class TestConfirmation:
     @pytest.mark.asyncio
     async def test_confirmation_approved(self):
         """Approved confirmation returns True."""
+
         async def approve_soon():
             await asyncio.sleep(0.05)
             pending = get_pending_confirmations()
@@ -80,6 +81,7 @@ class TestConfirmation:
     @pytest.mark.asyncio
     async def test_confirmation_denied(self):
         """Denied confirmation returns False."""
+
         async def deny_soon():
             await asyncio.sleep(0.05)
             pending = get_pending_confirmations()
@@ -125,6 +127,7 @@ class TestConfirmation:
     @pytest.mark.asyncio
     async def test_pending_cleaned_up_after_resolution(self):
         """After resolution, pending list is empty."""
+
         async def approve():
             await asyncio.sleep(0.05)
             pending = get_pending_confirmations()

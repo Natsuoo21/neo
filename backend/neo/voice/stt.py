@@ -59,9 +59,7 @@ def _check_whisper() -> Any:
 
         return whisper
     except ImportError:
-        raise ImportError(
-            "openai-whisper is not installed. Install it with: pip install openai-whisper"
-        )
+        raise ImportError("openai-whisper is not installed. Install it with: pip install openai-whisper")
 
 
 def _check_sounddevice() -> Any:
@@ -71,9 +69,7 @@ def _check_sounddevice() -> Any:
 
         return sounddevice
     except ImportError:
-        raise ImportError(
-            "sounddevice is not installed. Install it with: pip install sounddevice"
-        )
+        raise ImportError("sounddevice is not installed. Install it with: pip install sounddevice")
 
 
 def _check_numpy() -> Any:
@@ -93,9 +89,7 @@ def _check_webrtcvad() -> Any:
 
         return webrtcvad
     except ImportError:
-        raise ImportError(
-            "webrtcvad is not installed. Install it with: pip install webrtcvad"
-        )
+        raise ImportError("webrtcvad is not installed. Install it with: pip install webrtcvad")
 
 
 # ---------------------------------------------------------------------------
@@ -350,10 +344,7 @@ class WhisperSTT:
                     utterance_frames.append(pcm_bytes)
                     silence_count = 0
 
-                    while (
-                        self._wake_word_active
-                        and len(utterance_frames) < max_frames
-                    ):
+                    while self._wake_word_active and len(utterance_frames) < max_frames:
                         data, _overflowed = stream.read(blocksize)
                         pcm_bytes = _float32_to_int16_bytes(data, np)
                         utterance_frames.append(pcm_bytes)

@@ -50,21 +50,25 @@ def set_global_pause(paused: bool) -> None:
 # Rule 1 — Destructive action detection + confirmation
 # ---------------------------------------------------------------------------
 
-DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset({
-    "delete",
-    "send_email",
-    "reply_to",
-    "submit_form",
-    "fill_form",
-})
+DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "delete",
+        "send_email",
+        "reply_to",
+        "submit_form",
+        "fill_form",
+    }
+)
 
-_DESTRUCTIVE_TOOL_NAMES: frozenset[str] = frozenset({
-    "send_email",
-    "reply_to",
-    "fill_form",
-    "submit_form",
-    "open_app",
-})
+_DESTRUCTIVE_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "send_email",
+        "reply_to",
+        "fill_form",
+        "submit_form",
+        "open_app",
+    }
+)
 
 
 def is_destructive(action: str, tool_name: str = "", tool_input: dict | None = None) -> bool:
@@ -143,13 +147,15 @@ async def request_confirmation(
     # Notify frontend via SSE
     if notify_callback:
         try:
-            notify_callback({
-                "type": "confirmation_request",
-                "confirmation_id": confirmation.id,
-                "automation_id": automation_id,
-                "action_description": action_description,
-                "timeout_s": timeout_s,
-            })
+            notify_callback(
+                {
+                    "type": "confirmation_request",
+                    "confirmation_id": confirmation.id,
+                    "automation_id": automation_id,
+                    "action_description": action_description,
+                    "timeout_s": timeout_s,
+                }
+            )
         except Exception:
             logger.exception("Failed to send confirmation notification")
 
@@ -160,7 +166,8 @@ async def request_confirmation(
     except asyncio.TimeoutError:
         logger.warning(
             "Confirmation timed out for automation %d: %s",
-            automation_id, action_description,
+            automation_id,
+            action_description,
         )
         return False
     finally:

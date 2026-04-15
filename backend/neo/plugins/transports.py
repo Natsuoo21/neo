@@ -121,8 +121,7 @@ def validate_url(url: str) -> None:
 
     if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
         raise ValueError(
-            f"HTTP (non-TLS) is only allowed for localhost. Got: {parsed.hostname}. "
-            "Use https:// for remote servers."
+            f"HTTP (non-TLS) is only allowed for localhost. Got: {parsed.hostname}. Use https:// for remote servers."
         )
 
 

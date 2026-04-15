@@ -99,9 +99,7 @@ def _write_file(path: str, content: str) -> None:
             capture_output=True,
         )
         if result.returncode != 0:
-            raise OSError(
-                f"PowerShell write failed ({win_path}): {result.stderr.strip()}"
-            )
+            raise OSError(f"PowerShell write failed ({win_path}): {result.stderr.strip()}")
     else:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -126,9 +124,7 @@ def _append_file(path: str, content: str) -> None:
             capture_output=True,
         )
         if result.returncode != 0:
-            raise OSError(
-                f"PowerShell append failed ({win_path}): {result.stderr.strip()}"
-            )
+            raise OSError(f"PowerShell append failed ({win_path}): {result.stderr.strip()}")
     else:
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"\n{content}\n")

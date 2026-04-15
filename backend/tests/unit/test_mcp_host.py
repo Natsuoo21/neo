@@ -175,13 +175,17 @@ class TestMCPHostDiscover:
 class TestMCPHostDiscoverRemote:
     def test_discover_loads_remotes(self, tmp_path: Path):
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {
-                "name": "remote1",
-                "transport": "streamable_http",
-                "url": "https://example.com/mcp",
-            },
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "remote1",
+                        "transport": "streamable_http",
+                        "url": "https://example.com/mcp",
+                    },
+                ]
+            )
+        )
 
         host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
         plugins = host.discover()
@@ -193,9 +197,13 @@ class TestMCPHostDiscoverRemote:
 
     def test_discover_skips_invalid_remote_name(self, tmp_path: Path):
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {"name": "../escape", "transport": "sse", "url": "https://example.com"},
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {"name": "../escape", "transport": "sse", "url": "https://example.com"},
+                ]
+            )
+        )
 
         host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
         plugins = host.discover()
@@ -213,15 +221,24 @@ class TestMCPHostDiscoverRemote:
         # Local
         plugin_dir = tmp_path / "plugins" / "local1"
         plugin_dir.mkdir(parents=True)
-        (plugin_dir / "descriptor.json").write_text(json.dumps({
-            "name": "local1", "command": "python",
-        }))
+        (plugin_dir / "descriptor.json").write_text(
+            json.dumps(
+                {
+                    "name": "local1",
+                    "command": "python",
+                }
+            )
+        )
 
         # Remote
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {"name": "remote1", "transport": "sse", "url": "https://example.com"},
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {"name": "remote1", "transport": "sse", "url": "https://example.com"},
+                ]
+            )
+        )
 
         host = MCPHost(plugin_dir=tmp_path / "plugins", remotes_path=remotes_path)
         plugins = host.discover()
@@ -355,9 +372,13 @@ class TestMCPHostRemoteManagement:
     @pytest.mark.asyncio
     async def test_remove_remote(self, tmp_path: Path):
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {"name": "s1", "transport": "sse", "url": "https://example.com"},
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {"name": "s1", "transport": "sse", "url": "https://example.com"},
+                ]
+            )
+        )
 
         host = MCPHost(
             plugin_dir=tmp_path / "plugins",
@@ -373,14 +394,18 @@ class TestMCPHostRemoteManagement:
     async def test_auto_connect_remotes_with_auth(self, tmp_path: Path):
         """Remote servers with auth.token_env should auto-connect."""
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {
-                "name": "s1",
-                "transport": "streamable_http",
-                "url": "https://example.com/mcp",
-                "auth": {"type": "bearer", "token_env": "S1_TOKEN"},
-            },
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "s1",
+                        "transport": "streamable_http",
+                        "url": "https://example.com/mcp",
+                        "auth": {"type": "bearer", "token_env": "S1_TOKEN"},
+                    },
+                ]
+            )
+        )
 
         host = MCPHost(
             plugin_dir=tmp_path / "plugins",
@@ -396,9 +421,13 @@ class TestMCPHostRemoteManagement:
     async def test_auto_connect_skips_no_auth(self, tmp_path: Path):
         """Remote servers without auth.token_env should not auto-connect."""
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {"name": "s2", "transport": "sse", "url": "https://example.com"},
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {"name": "s2", "transport": "sse", "url": "https://example.com"},
+                ]
+            )
+        )
 
         host = MCPHost(
             plugin_dir=tmp_path / "plugins",
@@ -413,20 +442,24 @@ class TestMCPHostRemoteManagement:
     async def test_auto_connect_handles_errors(self, tmp_path: Path):
         """Auto-connect should not fail entirely if one server errors."""
         remotes_path = tmp_path / "remotes.json"
-        remotes_path.write_text(json.dumps([
-            {
-                "name": "good",
-                "transport": "streamable_http",
-                "url": "https://good.com/mcp",
-                "auth": {"type": "bearer", "token_env": "GOOD_TOKEN"},
-            },
-            {
-                "name": "bad",
-                "transport": "streamable_http",
-                "url": "https://bad.com/mcp",
-                "auth": {"type": "bearer", "token_env": "BAD_TOKEN"},
-            },
-        ]))
+        remotes_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "good",
+                        "transport": "streamable_http",
+                        "url": "https://good.com/mcp",
+                        "auth": {"type": "bearer", "token_env": "GOOD_TOKEN"},
+                    },
+                    {
+                        "name": "bad",
+                        "transport": "streamable_http",
+                        "url": "https://bad.com/mcp",
+                        "auth": {"type": "bearer", "token_env": "BAD_TOKEN"},
+                    },
+                ]
+            )
+        )
 
         host = MCPHost(
             plugin_dir=tmp_path / "plugins",
@@ -594,6 +627,7 @@ class TestResolveStdioEnv:
     def test_empty_env_returns_parent(self):
         result = _resolve_stdio_env({})
         import os
+
         assert "PATH" in result  # parent env inherited
         assert result["PATH"] == os.environ["PATH"]
 

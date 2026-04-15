@@ -471,9 +471,7 @@ _SESSION_LIST_SQL = """
 """
 
 _SESSION_LIST_ORDER = (
-    " GROUP BY cs.session_id"
-    " ORDER BY cs.is_pinned DESC, cs.pinned_at DESC, MAX(c.created_at) DESC"
-    " LIMIT ?"
+    " GROUP BY cs.session_id ORDER BY cs.is_pinned DESC, cs.pinned_at DESC, MAX(c.created_at) DESC LIMIT ?"
 )
 
 

@@ -96,10 +96,7 @@ def _http_request(method: str, path: str, body: dict | None = None) -> dict:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.URLError as e:
-        raise RuntimeError(
-            f"OpenHands is not running at {_OPENHANDS_URL}. "
-            f"Start it first. (error: {e.reason})"
-        ) from e
+        raise RuntimeError(f"OpenHands is not running at {_OPENHANDS_URL}. Start it first. (error: {e.reason})") from e
     except json.JSONDecodeError:
         return {}
 
@@ -132,10 +129,14 @@ def _execute_code(arguments: dict) -> str:
     else:
         cmd = f"python3 -c {json.dumps(code)}"
 
-    result = _http_request("POST", f"/api/conversations/{cid}/actions", {
-        "action": "CmdRunAction",
-        "args": {"command": cmd},
-    })
+    result = _http_request(
+        "POST",
+        f"/api/conversations/{cid}/actions",
+        {
+            "action": "CmdRunAction",
+            "args": {"command": cmd},
+        },
+    )
 
     output = result.get("observation", {}).get("content", "")
     exit_code = result.get("observation", {}).get("exit_code", -1)
@@ -149,10 +150,14 @@ def _execute_shell(arguments: dict) -> str:
     command = arguments.get("command", "")
     cid = _ensure_conversation()
 
-    result = _http_request("POST", f"/api/conversations/{cid}/actions", {
-        "action": "CmdRunAction",
-        "args": {"command": command},
-    })
+    result = _http_request(
+        "POST",
+        f"/api/conversations/{cid}/actions",
+        {
+            "action": "CmdRunAction",
+            "args": {"command": command},
+        },
+    )
 
     output = result.get("observation", {}).get("content", "")
     exit_code = result.get("observation", {}).get("exit_code", -1)
@@ -175,10 +180,14 @@ def _write_file(arguments: dict) -> str:
     content = arguments.get("content", "")
     cid = _ensure_conversation()
 
-    _http_request("PUT", f"/api/conversations/{cid}/files", {
-        "path": path,
-        "content": content,
-    })
+    _http_request(
+        "PUT",
+        f"/api/conversations/{cid}/files",
+        {
+            "path": path,
+            "content": content,
+        },
+    )
     return f"Written to {path}"
 
 

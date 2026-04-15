@@ -1,7 +1,8 @@
 """Tests for neo.tools.manage_mcp — MCP management tool (chat-accessible)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from neo.tools.manage_mcp import manage_mcp
 
@@ -29,10 +30,18 @@ class TestManageMcpList:
 
     @pytest.mark.asyncio
     async def test_list_with_plugins(self):
-        host = _make_host([
-            {"name": "weather", "status": "running", "transport": "stdio", "tools": [{"name": "get_weather"}]},
-            {"name": "github", "status": "connected", "transport": "streamable_http", "url": "https://api.github.com/mcp", "tools": []},
-        ])
+        host = _make_host(
+            [
+                {"name": "weather", "status": "running", "transport": "stdio", "tools": [{"name": "get_weather"}]},
+                {
+                    "name": "github",
+                    "status": "connected",
+                    "transport": "streamable_http",
+                    "url": "https://api.github.com/mcp",
+                    "tools": [],
+                },
+            ]
+        )
         result = await manage_mcp(host, action="list")
         assert "weather" in result
         assert "github" in result
@@ -42,18 +51,22 @@ class TestManageMcpList:
 class TestManageMcpConnect:
     @pytest.mark.asyncio
     async def test_connect_success(self):
-        host = _make_host([
-            {"name": "github", "status": "stopped", "transport": "streamable_http"},
-        ])
+        host = _make_host(
+            [
+                {"name": "github", "status": "stopped", "transport": "streamable_http"},
+            ]
+        )
         result = await manage_mcp(host, action="connect", name="github")
         assert "Successfully connected" in result
         host.start_plugin.assert_awaited_once_with("github")
 
     @pytest.mark.asyncio
     async def test_connect_already_connected(self):
-        host = _make_host([
-            {"name": "github", "status": "connected", "transport": "streamable_http"},
-        ])
+        host = _make_host(
+            [
+                {"name": "github", "status": "connected", "transport": "streamable_http"},
+            ]
+        )
         result = await manage_mcp(host, action="connect", name="github")
         assert "already connected" in result
 
@@ -65,9 +78,11 @@ class TestManageMcpConnect:
 
     @pytest.mark.asyncio
     async def test_connect_failure(self):
-        host = _make_host([
-            {"name": "bad", "status": "stopped", "transport": "streamable_http"},
-        ])
+        host = _make_host(
+            [
+                {"name": "bad", "status": "stopped", "transport": "streamable_http"},
+            ]
+        )
         host.start_plugin = AsyncMock(return_value=False)
         with pytest.raises(RuntimeError, match="Failed to connect"):
             await manage_mcp(host, action="connect", name="bad")
@@ -93,7 +108,9 @@ class TestManageMcpAdd:
     async def test_add_success(self):
         host = _make_host()
         result = await manage_mcp(
-            host, action="add", name="github",
+            host,
+            action="add",
+            name="github",
             url="https://api.github.com/mcp",
             transport="streamable_http",
         )
@@ -118,9 +135,12 @@ class TestManageMcpAdd:
         host = _make_host()
         with patch("neo.plugins.secrets.set_secret") as mock_set:
             result = await manage_mcp(
-                host, action="add", name="github",
+                host,
+                action="add",
+                name="github",
                 url="https://api.github.com/mcp",
-                auth_type="bearer", token_env="GITHUB_TOKEN",
+                auth_type="bearer",
+                token_env="GITHUB_TOKEN",
                 token_value="ghp_abc123",
             )
             assert "Added and connected" in result
@@ -130,9 +150,12 @@ class TestManageMcpAdd:
     async def test_add_with_auth_no_token(self):
         host = _make_host()
         result = await manage_mcp(
-            host, action="add", name="github",
+            host,
+            action="add",
+            name="github",
             url="https://api.github.com/mcp",
-            auth_type="bearer", token_env="GITHUB_TOKEN",
+            auth_type="bearer",
+            token_env="GITHUB_TOKEN",
         )
         assert "Added and connected" in result
         # Verify auth was passed

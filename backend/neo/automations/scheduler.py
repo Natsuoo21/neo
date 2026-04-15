@@ -10,7 +10,6 @@ automatically detected and run within the misfire_grace_time window.
 """
 
 import asyncio
-import concurrent.futures
 import json
 import logging
 import re
@@ -45,13 +44,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _WEEKDAY_MAP: dict[str, int] = {
-    "monday": 0, "mon": 0,
-    "tuesday": 1, "tue": 1,
-    "wednesday": 2, "wed": 2,
-    "thursday": 3, "thu": 3,
-    "friday": 4, "fri": 4,
-    "saturday": 5, "sat": 5,
-    "sunday": 6, "sun": 6,
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
 }
 
 # Regex patterns for common schedule expressions
@@ -383,9 +389,7 @@ class NeoScheduler:
             if not check_api_key_available(tier):
                 tier = LOCAL
                 if not check_api_key_available(tier):
-                    raise RuntimeError(
-                        f"No API key for tier {original_tier} (LOCAL fallback also unavailable)"
-                    )
+                    raise RuntimeError(f"No API key for tier {original_tier} (LOCAL fallback also unavailable)")
 
             # Execute via orchestrator
             clean_command = strip_override(command)
@@ -411,8 +415,12 @@ class NeoScheduler:
             # RULE 2 — Log after execution
             with get_session(self._db_path) as conn:
                 log_after_execution(
-                    conn, automation_id, command,
-                    result["status"], result.get("message", ""), elapsed_ms,
+                    conn,
+                    automation_id,
+                    command,
+                    result["status"],
+                    result.get("message", ""),
+                    elapsed_ms,
                 )
                 if result["status"] == "success":
                     update_automation_status(conn, automation_id, "success")
@@ -422,15 +430,17 @@ class NeoScheduler:
                     retry_count = auto.get("retry_count", 0) if auto else 0
                     paused = handle_failure(conn, automation_id, retry_count)
                     if paused:
-                        self._broadcast({
-                            "type": "automation_status",
-                            "automation_id": automation_id,
-                            "status": "paused",
-                            "message": (
-                                f"Automation '{auto['name'] if auto else automation_id}' "
-                                "paused after repeated failures"
-                            ),
-                        })
+                        self._broadcast(
+                            {
+                                "type": "automation_status",
+                                "automation_id": automation_id,
+                                "status": "paused",
+                                "message": (
+                                    f"Automation '{auto['name'] if auto else automation_id}' "
+                                    "paused after repeated failures"
+                                ),
+                            }
+                        )
                         self.remove_automation(automation_id)
 
         except Exception as e:

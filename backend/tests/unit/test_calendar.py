@@ -32,6 +32,7 @@ class TestListEvents:
             patch("neo.tools.calendar.build", return_value=mock_service),
         ):
             from neo.tools.calendar import list_events
+
             result = list_events(days=7)
 
             assert "Team Meeting" in result
@@ -47,6 +48,7 @@ class TestListEvents:
             patch("neo.tools.calendar.build", return_value=mock_service),
         ):
             from neo.tools.calendar import list_events
+
             result = list_events()
             assert "No events found" in result
 
@@ -63,6 +65,7 @@ class TestCreateEvent:
             patch("neo.tools.calendar.build", return_value=mock_service),
         ):
             from neo.tools.calendar import create_event
+
             result = create_event(
                 title="Test Event",
                 start_time="2026-04-01T10:00:00Z",
@@ -92,6 +95,7 @@ class TestUpdateEvent:
             patch("neo.tools.calendar.build", return_value=mock_service),
         ):
             from neo.tools.calendar import update_event
+
             result = update_event("evt1", title="New Title")
             assert "Event updated" in result
             assert "New Title" in result
@@ -107,6 +111,7 @@ class TestDeleteEvent:
             patch("neo.tools.calendar.build", return_value=mock_service),
         ):
             from neo.tools.calendar import delete_event
+
             result = delete_event("evt1")
             assert "Event deleted" in result
 
@@ -115,5 +120,6 @@ class TestNotAuthenticated:
     def test_raises_when_not_authenticated(self):
         with patch("neo.tools.calendar.get_credentials", return_value=None):
             from neo.tools.calendar import list_events
+
             with pytest.raises(RuntimeError, match="not authenticated"):
                 list_events()

@@ -349,9 +349,7 @@ class TestDeleteSkill:
         assert not os.path.isfile(path)
 
         # Verify DB row is gone
-        row = memory_db.execute(
-            "SELECT * FROM skills WHERE name = ?", ("temp_skill",)
-        ).fetchone()
+        row = memory_db.execute("SELECT * FROM skills WHERE name = ?", ("temp_skill",)).fetchone()
         assert row is None
 
     def test_refuse_delete_public_skill(self, memory_db):
@@ -360,9 +358,7 @@ class TestDeleteSkill:
         assert deleted is False
 
         # Verify still exists
-        row = memory_db.execute(
-            "SELECT * FROM skills WHERE name = ?", ("email_writer",)
-        ).fetchone()
+        row = memory_db.execute("SELECT * FROM skills WHERE name = ?", ("email_writer",)).fetchone()
         assert row is not None
 
     def test_delete_nonexistent(self, memory_db):
@@ -395,9 +391,7 @@ class TestCreateSkillFromTool:
         assert path.endswith("meeting_agenda.md")
 
         # Verify DB entry
-        row = memory_db.execute(
-            "SELECT * FROM skills WHERE name = ?", ("meeting_agenda",)
-        ).fetchone()
+        row = memory_db.execute("SELECT * FROM skills WHERE name = ?", ("meeting_agenda",)).fetchone()
         assert row is not None
         assert row["skill_type"] == "user"
 

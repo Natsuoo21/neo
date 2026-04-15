@@ -218,8 +218,7 @@ TOOL_DEFINITIONS = [
     {
         "name": "fill_form",
         "description": (
-            "Fill form fields on a web page and optionally submit. "
-            "Provide a mapping of CSS selectors to values."
+            "Fill form fields on a web page and optionally submit. Provide a mapping of CSS selectors to values."
         ),
         "input_schema": {
             "type": "object",
@@ -227,7 +226,9 @@ TOOL_DEFINITIONS = [
                 "url": {"type": "string", "description": "The URL of the page with the form"},
                 "fields": {
                     "type": "object",
-                    "description": "Mapping of CSS selectors to values (e.g. {\"#name\": \"John\", \"#email\": \"john@example.com\"})",
+                    "description": (
+                        'Mapping of CSS selectors to values (e.g. {"#name": "John", "#email": "john@example.com"})'
+                    ),
                 },
                 "submit_selector": {
                     "type": "string",
@@ -409,20 +410,19 @@ TOOL_DEFINITIONS = [
                 "command": {
                     "type": "string",
                     "description": (
-                        "The command Neo will execute when triggered "
-                        "(e.g., 'open Obsidian and show my daily note')"
+                        "The command Neo will execute when triggered (e.g., 'open Obsidian and show my daily note')"
                     ),
                 },
                 "trigger_config": {
                     "type": "object",
                     "description": (
                         "Trigger-specific configuration. "
-                        "For 'schedule': {\"cron\": \"0 9 * * *\"} (cron expression). "
-                        "For 'file_event': {\"path\": \"/path/to/watch\", "
-                        "\"pattern\": \"*.md\", "
-                        "\"event_types\": [\"created\", \"modified\"]}. "
+                        'For \'schedule\': {"cron": "0 9 * * *"} (cron expression). '
+                        'For \'file_event\': {"path": "/path/to/watch", '
+                        '"pattern": "*.md", '
+                        '"event_types": ["created", "modified"]}. '
                         "For 'startup': {} (no config needed). "
-                        "For 'pattern': {\"match\": \"keyword to match\"}."
+                        'For \'pattern\': {"match": "keyword to match"}.'
                     ),
                 },
             },
@@ -543,6 +543,7 @@ def _inject_tool_paths(conn) -> None:
     vault = tools.get("obsidian_vault", "")
     if vault:
         from neo.tools.obsidian import set_vault_path
+
         set_vault_path(vault)
 
 
@@ -654,7 +655,8 @@ def build_system_prompt(
             f"\n## Tool Guidance\n"
             f"- **Obsidian notes**: Use `create_note` or `append_to_note`. The vault is already configured — "
             f"do NOT use `manage_mcp` for Obsidian. Obsidian is a note-taking app, not an MCP server.\n"
-            f"- **MCP servers**: Use `manage_mcp` ONLY for MCP protocol servers (remote APIs that expose tools via HTTP/SSE).\n"
+            f"- **MCP servers**: Use `manage_mcp` ONLY for MCP protocol servers "
+            f"(remote APIs that expose tools via HTTP/SSE).\n"
             f"- When the user mentions their vault, Obsidian, or notes, use the Obsidian tools, never manage_mcp."
         )
 
@@ -847,6 +849,7 @@ async def dispatch_tool(tool_name: str, tool_input: dict) -> str:
             raise ToolError("MCP host is not available.")
         try:
             from neo.tools.manage_mcp import manage_mcp
+
             return await manage_mcp(host=_mcp_host, **tool_input)
         except Exception as e:
             raise ToolError(f"Tool 'manage_mcp' failed: {e}") from e
@@ -892,10 +895,12 @@ def get_all_tool_definitions() -> list[dict]:
 
         plugin_name = plugin["name"]
         for tool in _mcp_host.get_plugin_tools(plugin_name):
-            tools.append({
-                "name": f"plugin::{plugin_name}::{tool['name']}",
-                "description": tool.get("description", ""),
-                "input_schema": tool.get("inputSchema", {"type": "object", "properties": {}}),
-            })
+            tools.append(
+                {
+                    "name": f"plugin::{plugin_name}::{tool['name']}",
+                    "description": tool.get("description", ""),
+                    "input_schema": tool.get("inputSchema", {"type": "object", "properties": {}}),
+                }
+            )
 
     return tools

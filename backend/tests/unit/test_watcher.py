@@ -120,6 +120,7 @@ class TestDebouncedHandler:
         )
 
         from neo.automations.safety import set_global_pause
+
         set_global_pause(True)
         try:
             handler.on_any_event(FakeEvent("/tmp/test.txt", "created"))

@@ -65,9 +65,7 @@ def generate_suggestions(
         existing_patterns = {s["pattern"] for s in existing}
 
         # Also check dismissed patterns (don't re-suggest)
-        dismissed_rows = conn.execute(
-            "SELECT pattern FROM suggestions WHERE dismissed = 1"
-        ).fetchall()
+        dismissed_rows = conn.execute("SELECT pattern FROM suggestions WHERE dismissed = 1").fetchall()
         dismissed_patterns = {r["pattern"] for r in dismissed_rows}
 
         for p in patterns:
@@ -75,10 +73,7 @@ def generate_suggestions(
             if pattern_key in existing_patterns or pattern_key in dismissed_patterns:
                 continue
 
-            message = (
-                f"You've done \"{p['sample_input']}\" {p['count']} times. "
-                f"Want to automate it?"
-            )
+            message = f'You\'ve done "{p["sample_input"]}" {p["count"]} times. Want to automate it?'
 
             suggestion_id = create_suggestion(
                 conn,
@@ -98,10 +93,12 @@ def generate_suggestions(
             created.append(suggestion)
 
             # Broadcast to frontend
-            broadcast({
-                "type": "suggestion",
-                "suggestion": suggestion,
-            })
+            broadcast(
+                {
+                    "type": "suggestion",
+                    "suggestion": suggestion,
+                }
+            )
 
             # Only create one suggestion per run (throttling)
             break

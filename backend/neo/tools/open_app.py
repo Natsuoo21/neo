@@ -112,8 +112,7 @@ def _validate_app(app: str, args: str) -> None:
     _, ext = os.path.splitext(app)
     if ext.lower() in _BLOCKED_EXTENSIONS:
         raise ValueError(
-            f"Refusing to execute script file: {app}. "
-            "Only application binaries and URI protocols are allowed."
+            f"Refusing to execute script file: {app}. Only application binaries and URI protocols are allowed."
         )
 
     # Also check args for injected scripts
@@ -246,8 +245,6 @@ def open_app(app_name: str, args: str = "") -> str:
     try:
         return launcher(resolved, args)
     except FileNotFoundError:
-        raise RuntimeError(
-            f"Application '{app_name}' (resolved to '{resolved}') not found on this system."
-        ) from None
+        raise RuntimeError(f"Application '{app_name}' (resolved to '{resolved}') not found on this system.") from None
     except OSError as exc:
         raise RuntimeError(f"Failed to open '{app_name}': {exc}") from exc

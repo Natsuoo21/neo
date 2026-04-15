@@ -11,7 +11,6 @@ from neo.plugins.transports import (
     validate_url,
 )
 
-
 # ============================================
 # URL Validation
 # ============================================

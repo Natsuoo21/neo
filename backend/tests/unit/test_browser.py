@@ -426,7 +426,8 @@ class TestDownloadFileWrapper:
             result = download_file("https://example.com/report.pdf", "/tmp/downloads")
             assert "report.pdf" in result
             instance.download_file.assert_called_once_with(
-                "https://example.com/report.pdf", "/tmp/downloads",
+                "https://example.com/report.pdf",
+                "/tmp/downloads",
             )
 
 
@@ -461,6 +462,7 @@ class TestMonitorPageWrapper:
                 )
 
         import json
+
         data = json.loads(result)
         assert data["triggered"] is True
         assert data["final_value"] == "new"
@@ -485,6 +487,7 @@ class TestMonitorPageWrapper:
                 )
 
         import json
+
         data = json.loads(result)
         assert data["triggered"] is False
         assert data["checks_performed"] == 2

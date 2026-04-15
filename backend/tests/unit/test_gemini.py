@@ -260,9 +260,8 @@ class TestGroundingSources:
 
         with patch.object(provider, "_get_client", return_value=client):
             import asyncio
-            result = asyncio.get_event_loop().run_until_complete(
-                provider.complete("sys", "search something")
-            )
+
+            result = asyncio.get_event_loop().run_until_complete(provider.complete("sys", "search something"))
 
         assert "Research result" in result
         assert "**Sources:**" in result

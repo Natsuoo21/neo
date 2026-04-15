@@ -3,8 +3,6 @@
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from neo.skills.github_import import (
     download_and_validate,
     import_directory,
@@ -12,7 +10,6 @@ from neo.skills.github_import import (
     import_single_file,
     to_raw_url,
 )
-
 
 # ============================================
 # URL CONVERSION
@@ -137,9 +134,7 @@ class TestImportSingleFile:
         assert os.path.isfile(expected)
 
         # DB entry should exist
-        row = memory_db.execute(
-            "SELECT * FROM skills WHERE name = ?", ("imported_skill",)
-        ).fetchone()
+        row = memory_db.execute("SELECT * FROM skills WHERE name = ?", ("imported_skill",)).fetchone()
         assert row is not None
         assert row["skill_type"] == "community"
 
@@ -243,9 +238,7 @@ class TestImportFromGithub:
 
         monkeypatch.setattr(github_import, "_COMMUNITY_SKILLS_DIR", tmp_dir)
 
-        skill_content = (
-            "---\nname: smart_import\ndescription: test\ntask_types: []\ntools: []\n---\n\nContent.\n"
-        )
+        skill_content = "---\nname: smart_import\ndescription: test\ntask_types: []\ntools: []\n---\n\nContent.\n"
         mock_resp = MagicMock()
         mock_resp.text = skill_content
         mock_resp.raise_for_status = MagicMock()

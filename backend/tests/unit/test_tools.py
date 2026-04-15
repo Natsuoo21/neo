@@ -203,6 +203,7 @@ class TestObsidian:
 
     def test_vault_override_used(self, tmp_dir, monkeypatch):
         from neo.tools.obsidian import set_vault_path
+
         set_vault_path(tmp_dir)
         try:
             path = create_note(title="Override Test", content="Works")
@@ -213,27 +214,32 @@ class TestObsidian:
 
     def test_convert_windows_path_drive(self, monkeypatch):
         from neo.tools.obsidian import _convert_windows_path
+
         monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Linux")
         assert _convert_windows_path(r"G:\Meu Drive\notes") == "/mnt/g/Meu Drive/notes"
         assert _convert_windows_path(r"C:\Users\andre\vault") == "/mnt/c/Users/andre/vault"
 
     def test_convert_windows_path_forward_slash(self, monkeypatch):
         from neo.tools.obsidian import _convert_windows_path
+
         monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Linux")
         assert _convert_windows_path("G:/Meu Drive/notes") == "/mnt/g/Meu Drive/notes"
 
     def test_convert_windows_path_noop_linux(self):
         from neo.tools.obsidian import _convert_windows_path
+
         assert _convert_windows_path("/home/user/vault") == "/home/user/vault"
 
     def test_convert_windows_path_noop_on_windows(self, monkeypatch):
         from neo.tools.obsidian import _convert_windows_path
+
         monkeypatch.setattr("neo.tools.obsidian.platform.system", lambda: "Windows")
         # On actual Windows, don't convert
         assert _convert_windows_path(r"G:\vault") == r"G:\vault"
 
     def test_wsl_to_windows(self):
         from neo.tools.obsidian import _wsl_to_windows
+
         assert _wsl_to_windows("/mnt/g/Meu Drive/notes") == r"G:\Meu Drive\notes"
         assert _wsl_to_windows("/mnt/c/Users/andre") == r"C:\Users\andre"
         # Non-matching paths returned as-is
@@ -241,6 +247,7 @@ class TestObsidian:
 
     def test_needs_windows_io_unmounted(self, monkeypatch):
         from neo.tools.obsidian import _needs_windows_io
+
         monkeypatch.setattr("os.path.isdir", lambda p: p == "/mnt/c")
         assert _needs_windows_io("/mnt/g/Meu Drive/vault") is True
         assert _needs_windows_io("/mnt/c/Users/vault") is False

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # CLI slash commands
 # ---------------------------------------------------------------------------
 
+
 def _cmd_history(db_path: str, session_id: str) -> None:
     """Show conversation history for the current session."""
     with get_session(db_path) as conn:
@@ -100,7 +101,7 @@ def _cmd_costs(db_path: str) -> None:
         return
     print("\n  === Cost Breakdown (last 30 days) ===\n")
     print(f"  {'Model':<20s} {'Calls':>6s} {'Tokens':>10s} {'Cost':>10s}")
-    print(f"  {'-'*20} {'-'*6} {'-'*10} {'-'*10}")
+    print(f"  {'-' * 20} {'-' * 6} {'-' * 10} {'-' * 10}")
     for m in models:
         print(f"  {m['model_used']:<20s} {m['count']:>6d} {m.get('tokens', 0):>10,} R${m.get('cost', 0):>8.2f}")
     print(f"\n  Total: R${stats.get('total_cost', 0):.2f}\n")
@@ -144,7 +145,7 @@ def _cmd_patterns(db_path: str) -> None:
         return
     print("\n  === Detected Patterns (potential automations) ===\n")
     for p in patterns:
-        print(f"  \"{p['pattern']}\" — {p['count']} times (last: {p['last_run'][:10]})")
+        print(f'  "{p["pattern"]}" — {p["count"]} times (last: {p["last_run"][:10]})')
         print(f"    Example: {p['sample_input'][:80]}")
     print()
 

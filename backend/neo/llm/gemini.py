@@ -91,16 +91,18 @@ class GeminiProvider(LLMProvider):
             config_kwargs["tools"] = gemini_tools
             # Nudge Gemini to prefer tool calls over text responses
             config_kwargs["tool_config"] = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.AUTO)
             )
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
         # Build content from messages or single user string
         if messages:
-            contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in messages]
+            contents: Any = [
+                types.Content(role=m["role"], parts=[types.Part.from_text(text=m["content"])]) for m in messages
+            ]
         else:
-            contents = user  # type: ignore[assignment]
+            contents = user
 
         response = await client.aio.models.generate_content(
             model=self._model_name,
@@ -157,7 +159,7 @@ class GeminiProvider(LLMProvider):
             }
             if schema:
                 decl["parameters"] = schema
-            declarations.append(decl)
+            declarations.append(types.FunctionDeclaration(**decl))
         return [types.Tool(function_declarations=declarations)]
 
     @staticmethod

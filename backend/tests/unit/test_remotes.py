@@ -1,6 +1,5 @@
 """Tests for the remotes CRUD module."""
 
-import json
 import tempfile
 from pathlib import Path
 

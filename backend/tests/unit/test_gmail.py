@@ -32,6 +32,7 @@ class TestListEmails:
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import list_emails
+
             result = list_emails(query="is:unread", limit=5)
 
             assert "Hello" in result
@@ -39,15 +40,14 @@ class TestListEmails:
 
     def test_no_emails(self):
         mock_service = MagicMock()
-        mock_service.users.return_value.messages.return_value.list.return_value.execute.return_value = {
-            "messages": []
-        }
+        mock_service.users.return_value.messages.return_value.list.return_value.execute.return_value = {"messages": []}
 
         with (
             patch("neo.tools.gmail.get_credentials", return_value=MagicMock()),
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import list_emails
+
             result = list_emails()
             assert "No emails found" in result
 
@@ -74,6 +74,7 @@ class TestReadEmail:
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import read_email
+
             result = read_email("msg1")
 
             assert "Test Subject" in result
@@ -105,6 +106,7 @@ class TestReadEmail:
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import read_email
+
             result = read_email("msg2")
             assert "Plain text body" in result
 
@@ -112,15 +114,14 @@ class TestReadEmail:
 class TestSendEmail:
     def test_send_email(self):
         mock_service = MagicMock()
-        mock_service.users.return_value.messages.return_value.send.return_value.execute.return_value = {
-            "id": "sent1"
-        }
+        mock_service.users.return_value.messages.return_value.send.return_value.execute.return_value = {"id": "sent1"}
 
         with (
             patch("neo.tools.gmail.get_credentials", return_value=MagicMock()),
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import send_email
+
             result = send_email("alice@test.com", "Hello", "Body text")
 
             assert "Email sent" in result
@@ -153,6 +154,7 @@ class TestReplyTo:
             patch("neo.tools.gmail.build", return_value=mock_service),
         ):
             from neo.tools.gmail import reply_to
+
             result = reply_to("msg1", "Thanks!")
 
             assert "Reply sent" in result
@@ -163,5 +165,6 @@ class TestNotAuthenticated:
     def test_raises_when_not_authenticated(self):
         with patch("neo.tools.gmail.get_credentials", return_value=None):
             from neo.tools.gmail import list_emails
+
             with pytest.raises(RuntimeError, match="not authenticated"):
                 list_emails()

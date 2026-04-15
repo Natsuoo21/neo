@@ -15,9 +15,7 @@ def _get_service() -> Any:
     """Build and return the Google Calendar API service."""
     creds = get_credentials()
     if creds is None:
-        raise RuntimeError(
-            "Google Calendar not authenticated. Run OAuth flow first via Settings."
-        )
+        raise RuntimeError("Google Calendar not authenticated. Run OAuth flow first via Settings.")
 
     return build("calendar", "v3", credentials=creds)
 
@@ -135,11 +133,7 @@ def update_event(event_id: str, **changes: Any) -> str:
     if "description" in changes:
         event["description"] = changes["description"]
 
-    updated = (
-        service.events()
-        .update(calendarId="primary", eventId=event_id, body=event)
-        .execute()
-    )
+    updated = service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
 
     return f"Event updated: {updated.get('summary', event_id)}"
 

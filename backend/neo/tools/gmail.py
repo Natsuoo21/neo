@@ -16,9 +16,7 @@ def _get_service() -> Any:
     """Build and return the Gmail API service."""
     creds = get_credentials()
     if creds is None:
-        raise RuntimeError(
-            "Gmail not authenticated. Run OAuth flow first via Settings."
-        )
+        raise RuntimeError("Gmail not authenticated. Run OAuth flow first via Settings.")
 
     return build("gmail", "v1", credentials=creds)
 
@@ -35,12 +33,7 @@ def list_emails(query: str = "is:unread", limit: int = 10) -> str:
     """
     service = _get_service()
 
-    result = (
-        service.users()
-        .messages()
-        .list(userId="me", q=query, maxResults=limit)
-        .execute()
-    )
+    result = service.users().messages().list(userId="me", q=query, maxResults=limit).execute()
 
     messages = result.get("messages", [])
     if not messages:
@@ -79,12 +72,7 @@ def read_email(email_id: str) -> str:
     """
     service = _get_service()
 
-    msg = (
-        service.users()
-        .messages()
-        .get(userId="me", id=email_id, format="full")
-        .execute()
-    )
+    msg = service.users().messages().get(userId="me", id=email_id, format="full").execute()
 
     headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
     subject = headers.get("Subject", "(No subject)")
@@ -95,14 +83,7 @@ def read_email(email_id: str) -> str:
     # Extract body
     body = _extract_body(msg.get("payload", {}))
 
-    return (
-        f"Subject: {subject}\n"
-        f"From: {sender}\n"
-        f"To: {to}\n"
-        f"Date: {date}\n"
-        f"ID: {email_id}\n\n"
-        f"{body}"
-    )
+    return f"Subject: {subject}\nFrom: {sender}\nTo: {to}\nDate: {date}\nID: {email_id}\n\n{body}"
 
 
 def send_email(to: str, subject: str, body: str) -> str:
@@ -123,12 +104,7 @@ def send_email(to: str, subject: str, body: str) -> str:
     message["subject"] = subject
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    result = (
-        service.users()
-        .messages()
-        .send(userId="me", body={"raw": raw})
-        .execute()
-    )
+    result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
     return f"Email sent to {to}: '{subject}' (id: {result.get('id', 'unknown')})"
 
@@ -172,12 +148,7 @@ def reply_to(email_id: str, body: str) -> str:
     if thread_id:
         send_body["threadId"] = thread_id
 
-    result = (
-        service.users()
-        .messages()
-        .send(userId="me", body=send_body)
-        .execute()
-    )
+    result = service.users().messages().send(userId="me", body=send_body).execute()
 
     return f"Reply sent to {sender}: '{subject}' (id: {result.get('id', 'unknown')})"
 

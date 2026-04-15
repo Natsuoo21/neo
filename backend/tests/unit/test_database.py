@@ -58,8 +58,13 @@ class TestSchema:
         init_schema(db_path)
         tables = get_tables(db_path)
         expected = [
-            "action_log", "automations", "conversation_sessions",
-            "conversations", "projects", "skills", "suggestions",
+            "action_log",
+            "automations",
+            "conversation_sessions",
+            "conversations",
+            "projects",
+            "skills",
+            "suggestions",
             "user_profile",
         ]
         assert sorted(tables) == expected
@@ -336,9 +341,7 @@ class TestCreateAutomationFromTool:
         assert "when Neo starts" in result
 
         # Verify DB entry
-        row = conn.execute(
-            "SELECT * FROM automations WHERE name = ?", ("Morning briefing",)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM automations WHERE name = ?", ("Morning briefing",)).fetchone()
         assert row is not None
         assert row["trigger_type"] == "startup"
         assert row["command"] == "open Obsidian and show my daily note"

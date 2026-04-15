@@ -10,7 +10,6 @@ import pytest
 
 from neo.voice import stt
 from neo.voice.stt import (
-    WhisperSTT,
     _CHANNELS,
     _MIN_SPEECH_FRAMES,
     _SAMPLE_RATE,
@@ -23,12 +22,12 @@ from neo.voice.stt import (
     _WAKE_SILENCE_FRAMES,
     _WAKE_SPEECH_PAD,
     _WAKE_WORD,
+    WhisperSTT,
     _check_webrtcvad,
     _create_vad,
     _float32_to_int16_bytes,
     _is_speech_frame,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestSTTConstants — validate constant values and relationships
@@ -440,9 +439,7 @@ class TestRecordLoopVAD:
     @patch("neo.voice.stt._create_vad")
     @patch("neo.voice.stt._check_numpy")
     @patch("neo.voice.stt._check_sounddevice")
-    def test_record_loop_exception_sets_recording_false(
-        self, mock_sd_check, mock_np_check, mock_vad_check
-    ):
+    def test_record_loop_exception_sets_recording_false(self, mock_sd_check, mock_np_check, mock_vad_check):
         """Recording error sets _recording = False."""
         np = pytest.importorskip("numpy")
         mock_np_check.return_value = np
@@ -469,9 +466,7 @@ class TestWakeWordVAD:
     @patch("neo.voice.stt._create_vad")
     @patch("neo.voice.stt._check_numpy")
     @patch("neo.voice.stt._check_sounddevice")
-    def test_wake_word_silence_no_transcription(
-        self, mock_sd_check, mock_np_check, mock_vad_check
-    ):
+    def test_wake_word_silence_no_transcription(self, mock_sd_check, mock_np_check, mock_vad_check):
         """During silence, no Whisper calls should be made."""
         np = pytest.importorskip("numpy")
         mock_np_check.return_value = np
@@ -489,7 +484,6 @@ class TestWakeWordVAD:
 
         read_count = [0]
         max_reads = 10
-        blocksize = int(_SAMPLE_RATE * _VAD_FRAME_MS / 1000)
 
         class FakeStream:
             def read(self, n):
@@ -514,9 +508,7 @@ class TestWakeWordVAD:
     @patch("neo.voice.stt._create_vad")
     @patch("neo.voice.stt._check_numpy")
     @patch("neo.voice.stt._check_sounddevice")
-    def test_wake_word_speech_triggers_transcription(
-        self, mock_sd_check, mock_np_check, mock_vad_check
-    ):
+    def test_wake_word_speech_triggers_transcription(self, mock_sd_check, mock_np_check, mock_vad_check):
         """When speech is detected, Whisper should transcribe."""
         np = pytest.importorskip("numpy")
         mock_np_check.return_value = np
@@ -562,9 +554,7 @@ class TestWakeWordVAD:
     @patch("neo.voice.stt._create_vad")
     @patch("neo.voice.stt._check_numpy")
     @patch("neo.voice.stt._check_sounddevice")
-    def test_wake_word_detected_triggers_record(
-        self, mock_sd_check, mock_np_check, mock_vad_check
-    ):
+    def test_wake_word_detected_triggers_record(self, mock_sd_check, mock_np_check, mock_vad_check):
         """When 'hey neo' is detected, _record_loop should be called."""
         np = pytest.importorskip("numpy")
         mock_np_check.return_value = np
