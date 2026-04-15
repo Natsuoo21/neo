@@ -30,7 +30,7 @@ export default function FloatingBar() {
       .then((skills) => {
         setSkillCommands(
           skills
-            .filter((s) => s.enabled)
+            .filter((s) => s.is_enabled)
             .map((s) => ({ label: `/${s.name}`, description: s.description })),
         );
       })

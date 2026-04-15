@@ -142,12 +142,13 @@ pub fn run() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 // Kill sidecar on app exit
-                let state = app_handle.state::<Mutex<Option<CommandChild>>>();
-                if let Ok(mut guard) = state.lock() {
-                    if let Some(child) = guard.take() {
-                        let _ = child.kill();
-                        println!("[neo] Sidecar process stopped");
-                    }
+                let child = {
+                    let state = app_handle.state::<Mutex<Option<CommandChild>>>();
+                    state.lock().ok().and_then(|mut guard| guard.take())
+                };
+                if let Some(child) = child {
+                    let _ = child.kill();
+                    println!("[neo] Sidecar process stopped");
                 }
             }
         });
