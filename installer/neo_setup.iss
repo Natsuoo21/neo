@@ -49,11 +49,8 @@ Name: "install_ollama"; Description: "Download and install Ollama for local AI (
 ; Tauri executable (built by `npm run tauri build`)
 Source: "..\frontend\src-tauri\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
-; Python backend sidecar (built by PyInstaller)
-Source: "..\backend\dist\neo-server\*"; DestDir: "{app}\neo-server"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Data directory template
-Source: "..\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
+; Python backend sidecar (single-file PyInstaller exe)
+Source: "..\backend\dist\neo-server-x86_64-pc-windows-msvc.exe"; DestDir: "{app}\binaries"; Flags: ignoreversion
 
 ; Skills
 Source: "..\backend\neo\skills\public\*"; DestDir: "{app}\skills\public"; Flags: ignoreversion recursesubdirs
