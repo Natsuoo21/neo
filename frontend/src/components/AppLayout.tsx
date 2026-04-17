@@ -7,6 +7,7 @@ import PluginManager from "./PluginManager";
 import ActionLog from "./ActionLog";
 import SettingsPanel from "./SettingsPanel";
 import ConfirmationDialog from "./ConfirmationDialog";
+import TitleBar from "./TitleBar";
 import { useNeoStore } from "@/stores/neoStore";
 import { cn } from "@/lib/utils";
 
@@ -37,9 +38,13 @@ export default function AppLayout() {
   }, [setMobileOpen]);
 
   return (
-    <div className="h-screen w-full relative bg-background flex text-on-surface">
+    <div className="h-screen w-full relative bg-background flex flex-col text-on-surface">
+      {/* Custom title bar for window drag + controls */}
+      <TitleBar />
+
+      <div className="flex flex-1 min-h-0 relative">
       {/* TOPNAVBAR (Injected relative to Sidebar) */}
-      <header className="flex justify-between items-center w-full px-12 py-6 ml-72 fixed top-4 z-40 bg-transparent">
+      <header className="flex justify-between items-center w-full px-12 py-6 ml-72 fixed top-[calc(2.25rem+1rem)] z-40 bg-transparent">
         <div className="flex items-center gap-2">
           <span className="text-xl font-black tracking-tighter text-primary">Super agente</span>
         </div>
@@ -79,6 +84,7 @@ export default function AppLayout() {
           <ViewComponent />
         </main>
       <ConfirmationDialog />
+      </div>
     </div>
   );
 }
