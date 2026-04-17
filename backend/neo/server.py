@@ -159,10 +159,45 @@ _CORS_ORIGINS = [
 # ---------------------------------------------------------------------------
 
 
+def _resolve_env() -> None:
+    """Load environment from the first .env file found.
+
+    Search order (first wins):
+      1. %APPDATA%/Neo/.env          — user config (Windows production)
+      2. ~/.config/neo/.env           — user config (Linux/macOS production)
+      3. Next to the executable       — portable / sidecar installs
+      4. <source>/backend/.env.development — local development
+    """
+    import sys
+
+    candidates: list[Path] = []
+
+    # 1. User-writable app data (preferred for production)
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidates.append(Path(appdata) / "Neo" / ".env")
+    home = Path.home()
+    candidates.append(home / ".config" / "neo" / ".env")
+
+    # 2. Next to the executable (PyInstaller sidecar)
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).parent / ".env")
+
+    # 3. Development: relative to source
+    candidates.append(Path(__file__).resolve().parent.parent / ".env.development")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+            print(f"[neo] Loaded env from {candidate}")
+            return
+
+    print("[neo] WARNING: No .env file found — models may not be available")
+
+
 def _bootstrap(db_path: str | None = None) -> str:
     """Load env, init DB, seed data, sync skills. Returns db_path."""
-    env_path = Path(__file__).resolve().parent.parent / ".env.development"
-    load_dotenv(env_path, override=False)
+    _resolve_env()
 
     if db_path is None:
         db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")

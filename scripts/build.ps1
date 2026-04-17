@@ -15,7 +15,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
-$Binaries = Join-Path $Frontend "src-tauri" "binaries"
+$Binaries = Join-Path (Join-Path $Frontend "src-tauri") "binaries"
 
 Write-Host "=== Neo Build Script ===" -ForegroundColor Cyan
 

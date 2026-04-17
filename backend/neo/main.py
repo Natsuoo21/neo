@@ -188,9 +188,10 @@ def bootstrap(db_path: str | None = None) -> tuple:
     Returns:
         (registry, db_path) tuple ready for use.
     """
-    # Load .env.development if it exists (relative to backend dir)
-    env_path = Path(__file__).resolve().parent.parent / ".env.development"
-    load_dotenv(env_path, override=False)
+    # Load env from first available location (production or development)
+    from neo.server import _resolve_env
+
+    _resolve_env()
 
     if db_path is None:
         db_path = os.environ.get("NEO_DB_PATH", "./data/neo.db")
