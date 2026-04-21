@@ -40,12 +40,7 @@
         "skipTaskbar": true,
         "transparent": true
       }
-    ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false,
-      "tooltip": "Neo — Personal Intelligence Agent"
-    }
+    ]
   },
   "bundle": {
     "active": true,
