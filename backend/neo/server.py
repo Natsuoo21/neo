@@ -559,7 +559,13 @@ async def _rpc_health(_params: dict) -> dict:
     return {"status": "ok", "providers": list(_registry.keys())}
 
 
-def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -> dict:
+def _execute_sync(
+    command: str,
+    session_id: str,
+    db_path: str,
+    registry: dict,
+    file_paths: list[str] | None = None,
+) -> dict:
     """Synchronous execute logic — runs in a thread via asyncio.to_thread()."""
     # Read default provider preference from user profile
     default_tier = CLAUDE
@@ -573,6 +579,20 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
 
     tier = route(command, default_tier=default_tier)
     clean_command = strip_override(command)
+
+    # Parse attached files — extract text + images for multimodal support
+    _attached_images: list = []  # ImageData objects for multimodal content
+    if file_paths:
+        try:
+            from neo.tools.file_reader import parse_files_multimodal
+
+            mm_result = parse_files_multimodal(file_paths)
+            if mm_result.text:
+                clean_command = f"{clean_command}\n\n--- Attached Files ---\n{mm_result.text}"
+            _attached_images = mm_result.images
+        except Exception as e:
+            logger.warning("Failed to parse attached files: %s", e)
+
     provider = select_provider(registry, tier)
 
     if provider is None:
@@ -622,7 +642,22 @@ def _execute_sync(command: str, session_id: str, db_path: str, registry: dict) -
 
         history = get_conversation(conn, session_id, limit=20)
         messages = [{"role": h["role"], "content": h["content"]} for h in history]
-        messages.append({"role": "user", "content": user_command})
+
+        # Build the user message — multimodal if images were extracted
+        if _attached_images:
+            import base64 as _b64
+
+            content_blocks: list[dict] = [{"type": "text", "text": user_command}]
+            for img in _attached_images:
+                content_blocks.append({
+                    "type": "image",
+                    "media_type": img.media_type,
+                    "data": _b64.b64encode(img.data).decode("ascii"),
+                    "description": img.description,
+                })
+            messages.append({"role": "user", "content": content_blocks})
+        else:
+            messages.append({"role": "user", "content": user_command})
 
         # Try primary provider, then fallback on runtime errors
         providers_to_try = [(tier, provider)]
@@ -720,6 +755,7 @@ async def _rpc_execute(params: dict) -> dict:
         raise ValueError(f"Command too long (max {_MAX_COMMAND_LENGTH} chars)")
 
     session_id = params.get("session_id") or str(uuid.uuid4())
+    file_paths = params.get("file_paths", [])
 
     return await asyncio.to_thread(
         _execute_sync,
@@ -727,6 +763,7 @@ async def _rpc_execute(params: dict) -> dict:
         session_id,
         _db_path,
         _registry,
+        file_paths,
     )
 
 

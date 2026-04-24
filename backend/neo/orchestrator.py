@@ -45,10 +45,12 @@ TOOL_DEFINITIONS = [
     {
         "name": "create_excel",
         "description": (
-            "Create an Excel spreadsheet (.xlsx). You MUST provide the sheets array with "
-            "headers and rows — the tool writes exactly what you pass. "
+            "Create a professional Excel spreadsheet (.xlsx) with formatting, formulas, "
+            "and data validation. Professional defaults are applied automatically "
+            "(borders, zebra striping, auto-filter, number alignment). "
             "Example: title='Budget', sheets=[{name:'Q1', headers:['Item','Cost'], "
-            "rows:[['Rent',1200],['Food',400]]}]"
+            "rows:[['Rent',1200],['Food',400]], formulas:[{cell:'B3', formula:'=SUM(B2:B2)'}], "
+            "column_formats:{'Cost':'#,##0.00'}}]"
         ),
         "input_schema": {
             "type": "object",
@@ -63,28 +65,76 @@ TOOL_DEFINITIONS = [
                 },
                 "sheets": {
                     "type": "array",
-                    "description": (
-                        "List of sheets. Each sheet MUST have: name (string), "
-                        "headers (array of column names), rows (array of arrays — "
-                        "each inner array is one row of cell values). "
-                        "Use numbers for numeric cells, strings for text."
-                    ),
+                    "description": "List of sheets with data and optional formulas/formatting.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "Sheet tab name"},
+                            "name": {"type": "string", "description": "Sheet tab name (max 31 chars)"},
                             "headers": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Column header names (first row)",
+                                "description": "Column header names",
                             },
                             "rows": {
                                 "type": "array",
                                 "items": {"type": "array"},
-                                "description": "Data rows — each row is an array of values matching the headers",
+                                "description": "Data rows — each row is an array of values matching the headers. Use numbers for numeric cells.",
+                            },
+                            "formulas": {
+                                "type": "array",
+                                "description": "Formulas to place in cells. E.g. [{cell:'B10', formula:'=SUM(B2:B9)'}]",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cell": {"type": "string"},
+                                        "formula": {"type": "string"},
+                                    },
+                                    "required": ["cell", "formula"],
+                                },
+                            },
+                            "column_formats": {
+                                "type": "object",
+                                "description": "Number format per column header name. E.g. {'Cost':'#,##0.00', 'Date':'YYYY-MM-DD', 'Rate':'0.0%'}",
+                            },
+                            "conditional_formatting": {
+                                "type": "array",
+                                "description": "Conditional formatting rules. Types: color_scale, highlight, data_bar. Use 'column' for header name or 'range' for cell range.",
+                                "items": {"type": "object"},
+                            },
+                            "data_validation": {
+                                "type": "array",
+                                "description": "Dropdown lists for columns. E.g. [{column:'Status', type:'list', values:['Done','In Progress','Not Started']}]",
+                                "items": {"type": "object"},
+                            },
+                            "auto_filter": {
+                                "type": "boolean",
+                                "description": "Enable filter arrows on header row. Default: true.",
                             },
                         },
                         "required": ["name", "headers", "rows"],
+                    },
+                },
+                "formatting": {
+                    "type": "object",
+                    "description": (
+                        "Document-level style. Defaults: theme='professional', "
+                        "alternate_row_shading=true, borders='thin', font='Calibri', font_size=11."
+                    ),
+                    "properties": {
+                        "theme": {
+                            "type": "string",
+                            "enum": ["professional", "minimal", "corporate", "colorful"],
+                            "description": "Color theme preset",
+                        },
+                        "alternate_row_shading": {"type": "boolean", "description": "Zebra stripes (default true)"},
+                        "borders": {
+                            "type": "string",
+                            "enum": ["none", "thin", "medium", "all"],
+                            "description": "Border style (default 'thin')",
+                        },
+                        "header_color": {"type": "string", "description": "Hex color for header fill (e.g. '2B5797')"},
+                        "font": {"type": "string", "description": "Font name (default 'Calibri')"},
+                        "font_size": {"type": "integer", "description": "Font size (default 11)"},
                     },
                 },
             },
@@ -94,9 +144,9 @@ TOOL_DEFINITIONS = [
     {
         "name": "create_presentation",
         "description": (
-            "Create a PowerPoint presentation (.pptx). You MUST provide the slides array. "
-            "Example: title='Report', slides=[{title:'Welcome', content:'Project overview'}, "
-            "{title:'Results', content:'Revenue grew 20%'}]"
+            "Create a professional PowerPoint presentation (.pptx) with formatted bullets, "
+            "tables, speaker notes, and consistent theming. Use 'bullets' for slide content "
+            "(not 'content'). Professional defaults: slide numbers, Calibri fonts, blue theme."
         ),
         "input_schema": {
             "type": "object",
@@ -111,14 +161,64 @@ TOOL_DEFINITIONS = [
                 },
                 "slides": {
                     "type": "array",
-                    "description": "List of slides. Each slide has a title and content text.",
+                    "description": "List of slides with structured content.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string", "description": "Slide heading"},
-                            "content": {"type": "string", "description": "Slide body text"},
+                            "title": {"type": "string", "description": "Slide heading (state the takeaway)"},
+                            "layout": {
+                                "type": "string",
+                                "enum": ["title", "content", "section_header", "two_column", "title_only", "blank"],
+                                "description": "Slide layout. Default: auto-detect from content.",
+                            },
+                            "bullets": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Bullet points (max 6, max 8 words each). Preferred over body/content.",
+                            },
+                            "numbered_list": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Numbered list items",
+                            },
+                            "body": {"type": "string", "description": "Paragraph text (use bullets instead when possible)"},
+                            "table": {
+                                "type": "object",
+                                "description": "Data table: {headers: [...], rows: [[...]]}",
+                                "properties": {
+                                    "headers": {"type": "array", "items": {"type": "string"}},
+                                    "rows": {"type": "array", "items": {"type": "array"}},
+                                },
+                            },
+                            "speaker_notes": {
+                                "type": "string",
+                                "description": "Presenter notes (1-2 key talking points). ALWAYS include these.",
+                            },
+                            "left_content": {
+                                "type": "object",
+                                "description": "Left column content for two_column layout: {bullets:[...]} or {body:'...'}",
+                            },
+                            "right_content": {
+                                "type": "object",
+                                "description": "Right column content for two_column layout",
+                            },
                         },
-                        "required": ["title", "content"],
+                        "required": ["title"],
+                    },
+                },
+                "theme": {
+                    "type": "object",
+                    "description": (
+                        "Color and font settings. Defaults: primary_color='2B5797', "
+                        "font_title='Calibri', font_size_title=28, font_size_bullets=16."
+                    ),
+                    "properties": {
+                        "primary_color": {"type": "string", "description": "Hex color for titles/accents"},
+                        "text_color": {"type": "string", "description": "Hex color for body text"},
+                        "font_title": {"type": "string"},
+                        "font_body": {"type": "string"},
+                        "font_size_title": {"type": "integer"},
+                        "font_size_bullets": {"type": "integer"},
                     },
                 },
             },
@@ -128,9 +228,11 @@ TOOL_DEFINITIONS = [
     {
         "name": "create_document",
         "description": (
-            "Create a Word document (.docx). Use markdown-style formatting in content: "
-            "# Heading 1, ## Heading 2, ### Heading 3, - bullet items, plain text for paragraphs. "
-            "Example: title='Report', content='# Introduction\\nThis is the intro.\\n## Details\\n- Item 1\\n- Item 2'"
+            "Create a professional Word document (.docx). Two modes: "
+            "1) Simple: use 'content' string with markdown (# headings, - bullets, 1. numbered, "
+            "**bold**, *italic*, __underline__, --- page break, |col|col| tables). "
+            "2) Rich: use 'sections' array for complex docs with tables, mixed formatting. "
+            "Professional defaults applied: Calibri 11pt, 1.15 spacing, auto page numbers."
         ),
         "input_schema": {
             "type": "object",
@@ -142,8 +244,46 @@ TOOL_DEFINITIONS = [
                 "content": {
                     "type": "string",
                     "description": (
-                        "Document body. Use # for headings, - for bullets, blank lines for spacing. "
-                        "Write ALL the content here — this is what goes into the file."
+                        "Document body with markdown formatting. Use # for headings, - for bullets, "
+                        "1. for numbered lists, **bold**, *italic*, __underline__, --- for page breaks, "
+                        "|H1|H2|/|---|---|/|d1|d2| for tables. Use this for simple documents."
+                    ),
+                },
+                "sections": {
+                    "type": "array",
+                    "description": (
+                        "Structured sections for complex documents. Each section can have: "
+                        "heading (str), level (1-3), body (str with **bold**/*italic*), "
+                        "bullets (list), numbered_list (list), "
+                        "table ({headers:[...], rows:[[...]], style:'professional'}), "
+                        "page_break (bool). Use this instead of content for documents with tables."
+                    ),
+                    "items": {"type": "object"},
+                },
+                "formatting": {
+                    "type": "object",
+                    "description": (
+                        "Document style. Defaults: font='Calibri', font_size=11, line_spacing=1.15, "
+                        "margins=1 inch. Set page_numbers=true, toc=true as needed."
+                    ),
+                    "properties": {
+                        "font": {"type": "string"},
+                        "font_size": {"type": "integer"},
+                        "line_spacing": {"type": "number"},
+                        "page_numbers": {"type": "boolean", "description": "Add page numbers (auto for 2+ sections)"},
+                        "toc": {"type": "boolean", "description": "Add Table of Contents"},
+                        "margins": {
+                            "type": "object",
+                            "description": "Margins in inches: {top, bottom, left, right}",
+                        },
+                    },
+                },
+                "headers_footers": {
+                    "type": "object",
+                    "description": (
+                        "Header/footer content. Keys: header_left, header_right, footer_center, footer_right. "
+                        "Supports {date}, {page}, {pages} placeholders. "
+                        "E.g. {footer_center: 'Page {page} of {pages}'}"
                     ),
                 },
                 "output_path": {
@@ -169,6 +309,67 @@ TOOL_DEFINITIONS = [
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for the note"},
             },
             "required": ["title"],
+        },
+    },
+    {
+        "name": "read_note",
+        "description": (
+            "Read an Obsidian note from the vault by name. Supports fuzzy matching — "
+            "the name does not need to be exact. You can pass the note title, filename, "
+            "or even a partial/approximate name and it will find the best match. "
+            "Returns the full note content, path, and title."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Note name or title to find (fuzzy matching supported)",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "search_notes",
+        "description": (
+            "Search notes in the Obsidian vault by keyword. Searches both filenames and "
+            "file contents. Returns matching notes with relevance scores and context snippets."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query — a keyword or phrase to find in notes",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return (default 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "list_notes",
+        "description": (
+            "List notes in the Obsidian vault. Optionally filter by subfolder. "
+            "Returns note titles, paths, tags, and modification dates. "
+            "Also returns the folder structure of the vault."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "folder": {
+                    "type": "string",
+                    "description": "Subfolder to list (e.g. 'projects', 'daily'). Empty for all notes.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum notes to return (default 50)",
+                },
+            },
         },
     },
     {
@@ -339,15 +540,62 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "send_email",
-        "description": "Send an email via Gmail. This is a destructive action requiring confirmation.",
+        "description": (
+            "Send a professional email via Gmail with optional HTML formatting, CC/BCC, "
+            "and attachments. If body contains markdown (**bold**, - bullets), HTML is "
+            "auto-generated. Destructive action requiring confirmation."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "Recipient email address"},
-                "subject": {"type": "string", "description": "Email subject"},
-                "body": {"type": "string", "description": "Email body text"},
+                "subject": {"type": "string", "description": "Email subject (under 60 chars, action-oriented)"},
+                "body": {
+                    "type": "string",
+                    "description": (
+                        "Email body. Supports markdown: **bold**, *italic*, - bullets, 1. numbered. "
+                        "Auto-converted to HTML when formatting is detected."
+                    ),
+                },
+                "cc": {"type": "string", "description": "CC recipients (comma-separated)"},
+                "bcc": {"type": "string", "description": "BCC recipients (comma-separated)"},
+                "html_body": {
+                    "type": "string",
+                    "description": "Explicit HTML body (overrides auto-conversion from body)",
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths to attach (e.g. previously created documents)",
+                },
+                "signature": {"type": "string", "description": "Signature text to append"},
             },
             "required": ["to", "subject", "body"],
+        },
+    },
+    {
+        "name": "reply_to_email",
+        "description": (
+            "Reply to an existing email by ID. Preserves thread. "
+            "Supports HTML formatting, CC, and attachments. Destructive action requiring confirmation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_id": {"type": "string", "description": "The Gmail message ID to reply to"},
+                "body": {
+                    "type": "string",
+                    "description": "Reply body text (supports markdown for auto HTML conversion)",
+                },
+                "cc": {"type": "string", "description": "CC recipients (comma-separated)"},
+                "html_body": {"type": "string", "description": "Explicit HTML body"},
+                "attachments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths to attach",
+                },
+            },
+            "required": ["email_id", "body"],
         },
     },
     {
@@ -501,6 +749,207 @@ TOOL_DEFINITIONS = [
             "required": ["action"],
         },
     },
+    {
+        "name": "read_file",
+        "description": (
+            "Read and parse a file into structured text. Supports Excel (.xlsx), "
+            "Word (.docx), PowerPoint (.pptx), PDF (.pdf), CSV/TSV, and plain text files. "
+            "Use this when the user mentions a file path they want you to analyze, "
+            "or when you need to read a document to complete a task."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute or relative path to the file to read",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "edit_excel",
+        "description": (
+            "Edit an existing Excel spreadsheet (.xlsx). Update individual cells, "
+            "append or delete rows, add or remove sheets. Use this when the user wants to "
+            "modify an existing spreadsheet rather than create a new one. "
+            "Example: edit_excel(file_path='~/budget.xlsx', updates=[{cell:'B5', value:1500}])"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the existing .xlsx file to edit",
+                },
+                "updates": {
+                    "type": "array",
+                    "description": (
+                        "Cell updates. Each: {cell:'B5' or 'Sheet1!B5', value:1500, "
+                        "format:'#,##0.00' (optional), bold:true (optional)}"
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "cell": {"type": "string", "description": "Cell reference (e.g. 'B5' or 'Sheet1!B5')"},
+                            "value": {"description": "New cell value (string, number, or null)"},
+                            "format": {"type": "string", "description": "Number format string"},
+                            "bold": {"type": "boolean", "description": "Make cell bold"},
+                        },
+                        "required": ["cell"],
+                    },
+                },
+                "add_rows": {
+                    "type": "array",
+                    "description": "Rows to append. Each: {sheet:'Sheet1' (optional), values:[1,'text',3]}",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sheet": {"type": "string"},
+                            "values": {"type": "array"},
+                        },
+                        "required": ["values"],
+                    },
+                },
+                "delete_rows": {
+                    "type": "array",
+                    "description": "Rows to delete. Each: {sheet:'Sheet1' (optional), row:5} (1-based)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sheet": {"type": "string"},
+                            "row": {"type": "integer"},
+                        },
+                        "required": ["row"],
+                    },
+                },
+                "add_sheets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Sheet names to create",
+                },
+                "delete_sheets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Sheet names to delete",
+                },
+                "save_as": {
+                    "type": "string",
+                    "description": "Save to a different path instead of overwriting the original",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "edit_document",
+        "description": (
+            "Edit an existing Word document (.docx). Replace text, add or delete paragraphs, "
+            "headings, bullets, and tables. Use this when the user wants to modify an existing "
+            "document rather than create a new one. "
+            "Example: edit_document(file_path='~/report.docx', operations=[{type:'replace_text', "
+            "find:'Q3', replace:'Q4'}])"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the existing .docx file to edit",
+                },
+                "operations": {
+                    "type": "array",
+                    "description": (
+                        "List of editing operations. Types: "
+                        "'replace_text' ({find, replace}), "
+                        "'add_paragraph' ({text}), "
+                        "'add_heading' ({text, level}), "
+                        "'add_bullet' ({text}), "
+                        "'add_table' ({headers, rows}), "
+                        "'delete_paragraph' ({index}), "
+                        "'replace_paragraph' ({index, text})"
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "replace_text", "add_paragraph", "add_heading",
+                                    "add_bullet", "add_table",
+                                    "delete_paragraph", "replace_paragraph",
+                                ],
+                            },
+                            "find": {"type": "string"},
+                            "replace": {"type": "string"},
+                            "text": {"type": "string"},
+                            "level": {"type": "integer"},
+                            "index": {"type": "integer"},
+                            "headers": {"type": "array", "items": {"type": "string"}},
+                            "rows": {"type": "array", "items": {"type": "array"}},
+                        },
+                        "required": ["type"],
+                    },
+                },
+                "save_as": {
+                    "type": "string",
+                    "description": "Save to a different path instead of overwriting the original",
+                },
+            },
+            "required": ["file_path", "operations"],
+        },
+    },
+    {
+        "name": "edit_presentation",
+        "description": (
+            "Edit an existing PowerPoint presentation (.pptx). Update slide content, "
+            "add new slides, delete slides, or update speaker notes. Use this when the user "
+            "wants to modify an existing presentation rather than create a new one. "
+            "Example: edit_presentation(file_path='~/deck.pptx', operations=[{type:'update_slide', "
+            "slide:2, title:'New Title', bullets:['Point 1','Point 2']}])"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the existing .pptx file to edit",
+                },
+                "operations": {
+                    "type": "array",
+                    "description": (
+                        "List of editing operations. Types: "
+                        "'update_slide' ({slide (1-based), title, bullets, body, notes}), "
+                        "'add_slide' ({title, bullets, body, speaker_notes}), "
+                        "'delete_slide' ({slide (1-based)}), "
+                        "'update_notes' ({slide (1-based), notes})"
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["update_slide", "add_slide", "delete_slide", "update_notes"],
+                            },
+                            "slide": {"type": "integer", "description": "Slide number (1-based)"},
+                            "title": {"type": "string"},
+                            "bullets": {"type": "array", "items": {"type": "string"}},
+                            "body": {"type": "string"},
+                            "notes": {"type": "string"},
+                            "speaker_notes": {"type": "string"},
+                        },
+                        "required": ["type"],
+                    },
+                },
+                "save_as": {
+                    "type": "string",
+                    "description": "Save to a different path instead of overwriting the original",
+                },
+            },
+            "required": ["file_path", "operations"],
+        },
+    },
 ]
 
 # Maps LLM tool names to (module_name, function_name)
@@ -509,6 +958,9 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "create_presentation": ("neo.tools.powerpoint", "create_presentation"),
     "create_document": ("neo.tools.word", "create_document"),
     "create_note": ("neo.tools.obsidian", "create_note"),
+    "read_note": ("neo.tools.obsidian", "read_note"),
+    "search_notes": ("neo.tools.obsidian", "search_notes"),
+    "list_notes": ("neo.tools.obsidian", "list_notes"),
     "manage_file": ("neo.tools.files", "manage_file"),
     "browse_url": ("neo.tools.browser", "browse_url"),
     "take_screenshot": ("neo.tools.browser", "take_screenshot"),
@@ -520,10 +972,15 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "list_emails": ("neo.tools.gmail", "list_emails"),
     "read_email": ("neo.tools.gmail", "read_email"),
     "send_email": ("neo.tools.gmail", "send_email"),
+    "reply_to_email": ("neo.tools.gmail", "reply_to"),
     "create_skill": ("neo.skills.loader", "create_user_skill_from_tool"),
     "create_automation": ("neo.automations.tool", "create_automation_from_tool"),
     "open_app": ("neo.tools.open_app", "open_app"),
     "manage_mcp": ("neo.tools.manage_mcp", "manage_mcp"),
+    "read_file": ("neo.tools.file_reader", "parse_file"),
+    "edit_excel": ("neo.tools.excel", "edit_workbook"),
+    "edit_document": ("neo.tools.word", "edit_document"),
+    "edit_presentation": ("neo.tools.powerpoint", "edit_presentation"),
 }
 
 
@@ -547,9 +1004,21 @@ def _inject_tool_paths(conn) -> None:
         set_vault_path(vault)
 
 
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimate: ~4 chars per token."""
-    return len(text) // 4
+def _estimate_tokens(content: str | list) -> int:
+    """Rough token estimate: ~4 chars per token, ~1000 tokens per image."""
+    if isinstance(content, str):
+        return len(content) // 4
+    # Multimodal content (list of blocks)
+    total = 0
+    for block in content:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                total += len(block.get("text", "")) // 4
+            elif block.get("type") == "image":
+                total += 1000  # approximate tokens per image
+        elif isinstance(block, str):
+            total += len(block) // 4
+    return total
 
 
 def _truncate_history(
@@ -653,8 +1122,14 @@ def build_system_prompt(
             f"- You can save files to any user directory. Use output_path when the user specifies a location.\n"
             f"- NEVER write to system directories (C:\\Windows, /etc, /usr, etc.) or sensitive dirs (.ssh, .gnupg).\n"
             f"\n## Tool Guidance\n"
-            f"- **Obsidian notes**: Use `create_note` or `append_to_note`. The vault is already configured — "
-            f"do NOT use `manage_mcp` for Obsidian. Obsidian is a note-taking app, not an MCP server.\n"
+            f"- **Obsidian notes**: The vault is already configured — do NOT use `manage_mcp` for Obsidian.\n"
+            f"  - `read_note` — Read a note by name (fuzzy matching: partial names, approximate spelling all work).\n"
+            f"  - `search_notes` — Search notes by keyword in titles and content.\n"
+            f"  - `list_notes` — List all notes or notes in a subfolder. Shows vault folder structure.\n"
+            f"  - `create_note` — Create a new note with frontmatter.\n"
+            f"  - `append_to_note` — Add content to an existing note.\n"
+            f"  - When the user asks about a note, ALWAYS use `read_note` first. "
+            f"If the name is ambiguous, use `search_notes` or `list_notes` to find it.\n"
             f"- **MCP servers**: Use `manage_mcp` ONLY for MCP protocol servers "
             f"(remote APIs that expose tools via HTTP/SSE).\n"
             f"- When the user mentions their vault, Obsidian, or notes, use the Obsidian tools, never manage_mcp."

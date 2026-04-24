@@ -34,9 +34,19 @@ class OllamaProvider(LLMProvider):
 
     async def complete(self, system: str, user: str) -> str:
         """Send a completion request to Ollama."""
+        # Strip images from multimodal user content if present
+        user_content = user
+        if isinstance(user, list):
+            text_parts = []
+            for block in user:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    text_parts.append(block)
+            user_content = "\n".join(text_parts)
         messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "user", "content": user_content},
         ]
         client = await self._get_client()
         response = await client.post(
@@ -47,6 +57,29 @@ class OllamaProvider(LLMProvider):
         data = response.json()
         return data.get("message", {}).get("content", "")
 
+    @staticmethod
+    def _strip_images(messages: list[dict]) -> list[dict]:
+        """Strip image blocks from multimodal messages.
+
+        Most local Ollama models lack vision capabilities, so we extract
+        only text content from multimodal messages.
+        """
+        stripped = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                # Extract only text blocks and join them
+                text_parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                stripped.append({"role": msg["role"], "content": "\n".join(text_parts)})
+            else:
+                stripped.append(msg)
+        return stripped
+
     async def complete_with_tools(
         self,
         system: str,
@@ -56,7 +89,7 @@ class OllamaProvider(LLMProvider):
     ) -> dict:
         """Send a completion request with tool definitions to Ollama."""
         if messages:
-            msg_list = [{"role": "system", "content": system}] + messages
+            msg_list = [{"role": "system", "content": system}] + self._strip_images(messages)
         else:
             msg_list = [
                 {"role": "system", "content": system},

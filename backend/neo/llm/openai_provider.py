@@ -86,6 +86,37 @@ class OpenAIProvider(LLMProvider):
 
         return ""  # unreachable, satisfies type checker
 
+    @staticmethod
+    def _prepare_messages(messages: list[dict]) -> list[dict]:
+        """Convert multimodal content blocks to OpenAI's vision format.
+
+        Our internal format:
+            {"type": "image", "media_type": "image/png", "data": "base64..."}
+        OpenAI's format:
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+        """
+        prepared = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                converted_blocks = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "image":
+                        media = block.get("media_type", "image/png")
+                        data = block.get("data", "")
+                        converted_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media};base64,{data}"},
+                        })
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        converted_blocks.append({"type": "text", "text": block.get("text", "")})
+                    else:
+                        converted_blocks.append(block)
+                prepared.append({"role": msg["role"], "content": converted_blocks})
+            else:
+                prepared.append(msg)
+        return prepared
+
     async def complete_with_tools(
         self,
         system: str,
@@ -97,7 +128,7 @@ class OpenAIProvider(LLMProvider):
         client = self._get_client()
         msg_list: list = [{"role": "system", "content": system}]
         if messages:
-            msg_list.extend(messages)
+            msg_list.extend(self._prepare_messages(messages))
         else:
             msg_list.append({"role": "user", "content": user})
 

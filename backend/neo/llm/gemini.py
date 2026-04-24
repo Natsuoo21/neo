@@ -98,9 +98,27 @@ class GeminiProvider(LLMProvider):
 
         # Build content from messages or single user string
         if messages:
-            contents: Any = [
-                types.Content(role=m["role"], parts=[types.Part.from_text(text=m["content"])]) for m in messages
-            ]
+            contents: Any = []
+            for m in messages:
+                msg_content = m.get("content", "")
+                if isinstance(msg_content, list):
+                    # Multimodal content — convert image blocks to Gemini Parts
+                    parts = []
+                    for block in msg_content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            parts.append(types.Part.from_text(text=block.get("text", "")))
+                        elif isinstance(block, dict) and block.get("type") == "image":
+                            import base64 as _b64
+                            img_bytes = _b64.b64decode(block.get("data", ""))
+                            media_type = block.get("media_type", "image/png")
+                            parts.append(types.Part.from_bytes(data=img_bytes, mime_type=media_type))
+                        else:
+                            parts.append(types.Part.from_text(text=str(block)))
+                    contents.append(types.Content(role=m["role"], parts=parts))
+                else:
+                    contents.append(
+                        types.Content(role=m["role"], parts=[types.Part.from_text(text=msg_content)])
+                    )
         else:
             contents = user
 
