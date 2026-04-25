@@ -36,6 +36,10 @@ class MockProvider(LLMProvider):
         self.last_tools = tools
         self.last_messages = messages
         self.call_count += 1
+        # On first call return the configured response (may be tool_use).
+        # On subsequent calls return text so the tool-use loop terminates.
+        if self.call_count > 1 and self._tool_response.get("type") == "tool_use":
+            return {"type": "text", "content": self._text_response}
         return self._tool_response
 
     def name(self) -> str:

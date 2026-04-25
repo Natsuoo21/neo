@@ -1229,50 +1229,69 @@ async def process(
         if messages:
             truncated_messages = _truncate_history(messages, max_tokens, reserved)
 
-        # STAGE 2+5: PARSE + EXECUTE via tool use
-        llm_response = await provider.complete_with_tools(
-            system=system_prompt,
-            user=command,
-            tools=get_all_tool_definitions(),
-            messages=truncated_messages,
-        )
+        # STAGE 2+5: PARSE + EXECUTE via tool-use loop
+        # The LLM can chain multiple tools before giving a final text answer,
+        # just like normal LLMs (e.g. search notes → read note → answer).
+        _MAX_TOOL_ITERATIONS = 5
+        loop_messages = list(truncated_messages) if truncated_messages else []
+        all_tool_defs = get_all_tool_definitions()
+        tools_used: list[str] = []
+        last_tool_output: str | None = None
 
-        if llm_response["type"] == "tool_use":
+        for _iteration in range(_MAX_TOOL_ITERATIONS):
+            llm_response = await provider.complete_with_tools(
+                system=system_prompt,
+                user=command,
+                tools=all_tool_defs,
+                messages=loop_messages if loop_messages else None,
+            )
+
+            if llm_response["type"] != "tool_use":
+                # Final text response — done
+                result["message"] = llm_response.get("content", "")
+                break
+
             tool_name = llm_response["tool_name"]
             tool_input = llm_response["tool_input"]
-            result["tool_used"] = tool_name
+            tools_used.append(tool_name)
 
-            # Inject user profile paths into tools that need them
             _inject_tool_paths(conn)
-
-            # Execute the tool
             tool_output = await dispatch_tool(tool_name, tool_input)
-            result["tool_result"] = tool_output
+            last_tool_output = tool_output
 
-            # Ask the LLM to summarize the tool result for the user
+            # Append tool interaction to messages so the LLM sees the
+            # result and can decide: call another tool, or answer.
+            loop_messages.append({
+                "role": "assistant",
+                "content": f"[Used tool {tool_name}]",
+            })
+            loop_messages.append({
+                "role": "user",
+                "content": (
+                    f"[Tool result for {tool_name}]:\n"
+                    f"{tool_output}"
+                ),
+            })
+        else:
+            # Exhausted iterations — ask LLM to wrap up with a summary
             try:
                 summary = await provider.complete(
                     system=(
-                        "You are Neo, a personal intelligence agent. "
-                        "A tool was just executed on behalf of the user. "
-                        "Summarize what was done and the result in a helpful, "
-                        "concise way. Include any file paths or key details. "
-                        "Do NOT say you will do something — it is already done."
+                        "You are Neo. Summarize the tool results "
+                        "for the user. Be concise and helpful."
                     ),
                     user=(
                         f"User request: {command}\n"
-                        f"Tool used: {tool_name}\n"
-                        f"Tool parameters: {json.dumps(tool_input, default=str)[:500]}\n"
-                        f"Result: {tool_output}"
+                        f"Tools used: {', '.join(tools_used)}\n"
+                        f"Last result: {last_tool_output}"
                     ),
                 )
-                result["message"] = summary if summary else f"Done — {tool_name}: {tool_output}"
+                result["message"] = summary or str(last_tool_output)
             except Exception:
-                logger.warning("Failed to generate tool summary, using raw output")
-                result["message"] = f"Done — {tool_name}: {tool_output}"
-        else:
-            # Text-only response (question, clarification, etc.)
-            result["message"] = llm_response.get("content", "")
+                result["message"] = str(last_tool_output or "Done.")
+
+        result["tool_used"] = ", ".join(tools_used)
+        result["tool_result"] = last_tool_output
 
     except ToolError as e:
         logger.exception("Tool dispatch error")
