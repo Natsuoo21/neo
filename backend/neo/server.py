@@ -118,10 +118,14 @@ class _SharedLoop:
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
 
-    def run(self, coro):  # type: ignore[no-untyped-def]
-        """Submit a coroutine to the shared loop and block until it completes."""
+    def run(self, coro, timeout: float = 240.0):  # type: ignore[no-untyped-def]
+        """Submit a coroutine to the shared loop and block until it completes.
+
+        Args:
+            timeout: Maximum seconds to wait (default 240s / 4 minutes).
+        """
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        return future.result(timeout=timeout)
 
     def stop(self) -> None:
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -665,18 +669,33 @@ def _execute_sync(
 
         result = None
         for attempt_tier, attempt_provider in providers_to_try:
-            result = _shared_loop.run(
-                process(
-                    user_command,
-                    attempt_provider,
-                    conn,
-                    skill_content,
-                    skill_name=skill_name,
-                    routed_tier=attempt_tier,
-                    messages=messages,
-                    available_skills=available_skills,
+            try:
+                result = _shared_loop.run(
+                    process(
+                        user_command,
+                        attempt_provider,
+                        conn,
+                        skill_content,
+                        skill_name=skill_name,
+                        routed_tier=attempt_tier,
+                        messages=messages,
+                        available_skills=available_skills,
+                    )
                 )
-            )
+            except (TimeoutError, Exception) as exc:
+                logger.error("Provider %s timed out or crashed: %s", attempt_provider.name(), exc)
+                result = {
+                    "status": "error",
+                    "message": (
+                        f"Request timed out after 4 minutes. "
+                        f"The {attempt_provider.name()} provider took too long."
+                    ),
+                    "tool_used": "",
+                    "tool_result": None,
+                    "model_used": attempt_provider.name(),
+                    "routed_tier": attempt_tier,
+                    "duration_ms": 0,
+                }
             if result["status"] == "success":
                 break
             logger.warning(

@@ -5,7 +5,7 @@
 import type { RpcResponse } from "@/types/rpc";
 
 const DEFAULT_BASE_URL = "http://localhost:9721";
-const RPC_TIMEOUT_MS = 30_000;
+const RPC_TIMEOUT_MS = 300_000; // 5 minutes — LLM calls + tool execution can be slow
 
 let _baseUrl = DEFAULT_BASE_URL;
 let _nextId = 1;

@@ -8,6 +8,53 @@ import VoiceButton from "./VoiceButton";
 import type { ChatMessage } from "@/stores/neoStore";
 import type { ConversationNewResult, ExecuteResult } from "@/types/rpc";
 
+const THINKING_MESSAGES = [
+  "Neo is thinking",
+  "Working on it",
+  "Processing your request",
+  "Almost there",
+];
+
+function ThinkingIndicator() {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const label = elapsed < 10
+    ? THINKING_MESSAGES[0]
+    : elapsed < 30
+      ? THINKING_MESSAGES[1]
+      : elapsed < 60
+        ? THINKING_MESSAGES[2]
+        : THINKING_MESSAGES[3];
+
+  const timeStr = elapsed < 60
+    ? `${elapsed}s`
+    : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+
+  return (
+    <div className="flex gap-3 py-3 justify-start animate-fade-in-up">
+      <div className="bg-white/5 backdrop-blur-md border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3 shadow-card flex items-center gap-3">
+        <div className="flex gap-1.5 items-center">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+        <span className="text-xs text-muted-foreground/70 font-body">
+          {label}
+          {elapsed >= 3 && <span className="text-muted-foreground/40 ml-1.5">({timeStr})</span>}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const QUICK_ACTIONS = [
   { label: "Write a report", icon: "description", prompt: "Write a report about " },
   { label: "Research a topic", icon: "search", prompt: "Research and summarize " },
@@ -16,6 +63,7 @@ const QUICK_ACTIONS = [
 
 export default function ChatView() {
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<{ path: string; name: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -40,9 +88,46 @@ export default function ChatView() {
     }
   }, [input]);
 
+  const handleAttach = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const files = await open({
+        multiple: true,
+        filters: [
+          {
+            name: "Documents",
+            extensions: [
+              "xlsx", "xls", "docx", "pptx", "pdf",
+              "csv", "tsv", "txt", "md", "json", "xml",
+            ],
+          },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+      if (files) {
+        const paths: string[] = Array.isArray(files)
+          ? files.map((f: any) => (typeof f === "string" ? f : f.path ?? String(f)))
+          : [typeof files === "string" ? files : (files as any).path ?? String(files)];
+        setAttachments((prev) => [
+          ...prev,
+          ...paths.map((p) => ({
+            path: p,
+            name: p.split(/[\\/]/).pop()!,
+          })),
+        ]);
+      }
+    } catch (err) {
+      console.error("File dialog error:", err);
+    }
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleSend = useCallback(async () => {
     const cmd = input.trim();
-    if (!cmd || loading || submittingRef.current) return;
+    if ((!cmd && attachments.length === 0) || loading || submittingRef.current) return;
     submittingRef.current = true;
 
     let sid = sessionId;
@@ -57,20 +142,24 @@ export default function ChatView() {
       }
     }
 
+    const currentAttachments = [...attachments];
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: cmd,
+      content: cmd || "(attached files)",
+      attachments: currentAttachments.length > 0 ? currentAttachments.map((a) => a.name) : undefined,
       timestamp: Date.now(),
     };
     addMessage(userMsg);
     setInput("");
+    setAttachments([]);
     setLoading(true);
 
     try {
       const result = await rpc<ExecuteResult>("neo.execute", {
-        command: cmd,
+        command: cmd || "Analyze the attached files",
         session_id: sid,
+        file_paths: currentAttachments.map((a) => a.path),
       });
 
       const assistantMsg: ChatMessage = {
@@ -95,7 +184,7 @@ export default function ChatView() {
       setLoading(false);
       submittingRef.current = false;
     }
-  }, [input, loading, sessionId, addMessage, setSessionId, setLoading]);
+  }, [input, loading, sessionId, attachments, addMessage, setSessionId, setLoading]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -159,15 +248,7 @@ export default function ChatView() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
               ))}
-              {loading && (
-                <div className="flex gap-3 py-3 justify-start animate-fade-in-up">
-                  <div className="bg-white/5 backdrop-blur-md border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3 shadow-card flex gap-1.5 items-center">
-                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              )}
+              {loading && <ThinkingIndicator />}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -180,9 +261,37 @@ export default function ChatView() {
         isEmpty ? "pb-[12vh]" : "pb-4",
       )}>
         <div className="max-w-3xl mx-auto">
+           {/* Attachment chips */}
+           {attachments.length > 0 && (
+             <div className="flex flex-wrap gap-1.5 mb-2 px-2">
+               {attachments.map((att, i) => (
+                 <span
+                   key={i}
+                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 backdrop-blur-md border border-white/10 text-xs text-slate-300 font-mono"
+                 >
+                   <span className="material-symbols-outlined text-[14px] text-slate-400">attach_file</span>
+                   {att.name}
+                   <button
+                     onClick={() => removeAttachment(i)}
+                     className="ml-0.5 hover:text-white transition-colors"
+                   >
+                     <span className="material-symbols-outlined text-[14px]">close</span>
+                   </button>
+                 </span>
+               ))}
+             </div>
+           )}
+
            <div className="relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-secondary/30 rounded-2xl blur opacity-30 group-focus-within:opacity-60 transition duration-1000 group-hover:duration-200"></div>
-              <div className="relative flex items-center bg-surface-container-highest/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-2 pl-6 gap-2">
+              <div className="relative flex items-center bg-surface-container-highest/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-2 pl-4 gap-2">
+                <button
+                  onClick={handleAttach}
+                  className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all active:scale-95"
+                  title="Attach files"
+                >
+                  <span className="material-symbols-outlined text-[20px]">add</span>
+                </button>
                 <VoiceButton />
                 <input
                   ref={textareaRef as any}
@@ -194,7 +303,7 @@ export default function ChatView() {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || loading}
+                  disabled={!input.trim() && attachments.length === 0 || loading}
                   className="w-12 h-12 shrink-0 bg-primary text-on-primary-fixed rounded-xl flex items-center justify-center hover:bg-primary-container transition-all shadow-lg active:scale-95 disabled:opacity-40"
                 >
                   <span className="material-symbols-outlined" style={{fontVariationSettings: "'FILL' 1"}}>send</span>

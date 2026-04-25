@@ -1248,7 +1248,28 @@ async def process(
             # Execute the tool
             tool_output = await dispatch_tool(tool_name, tool_input)
             result["tool_result"] = tool_output
-            result["message"] = f"Executed {tool_name}: {tool_output}"
+
+            # Ask the LLM to summarize the tool result for the user
+            try:
+                summary = await provider.complete(
+                    system=(
+                        "You are Neo, a personal intelligence agent. "
+                        "A tool was just executed on behalf of the user. "
+                        "Summarize what was done and the result in a helpful, "
+                        "concise way. Include any file paths or key details. "
+                        "Do NOT say you will do something — it is already done."
+                    ),
+                    user=(
+                        f"User request: {command}\n"
+                        f"Tool used: {tool_name}\n"
+                        f"Tool parameters: {json.dumps(tool_input, default=str)[:500]}\n"
+                        f"Result: {tool_output}"
+                    ),
+                )
+                result["message"] = summary if summary else f"Done — {tool_name}: {tool_output}"
+            except Exception:
+                logger.warning("Failed to generate tool summary, using raw output")
+                result["message"] = f"Done — {tool_name}: {tool_output}"
         else:
             # Text-only response (question, clarification, etc.)
             result["message"] = llm_response.get("content", "")
