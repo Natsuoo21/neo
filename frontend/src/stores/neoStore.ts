@@ -26,6 +26,7 @@ export interface ChatMessage {
   tool?: string;
   duration?: number;
   timestamp: number;
+  attachments?: string[];
 }
 
 interface NeoState {

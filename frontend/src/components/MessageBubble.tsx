@@ -50,6 +50,21 @@ export default function MessageBubble({ message }: Props) {
           )}
         </button>
 
+        {/* Attachment indicators */}
+        {isUser && message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {message.attachments.map((name, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-[11px] font-mono"
+              >
+                <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
+
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (

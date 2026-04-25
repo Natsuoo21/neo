@@ -20,6 +20,7 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── Sidecar launch ──────────────────────────────────────
             let already_running = std::net::TcpStream::connect_timeout(
