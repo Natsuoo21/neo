@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -9,11 +9,50 @@ import type { ChatMessage } from "@/stores/neoStore";
 
 interface Props {
   message: ChatMessage;
+  isNew?: boolean;
 }
 
-export default function MessageBubble({ message }: Props) {
+/** Progressively reveals text word by word, then renders final markdown. */
+function useTypewriter(text: string, enabled: boolean, wordsPerSecond = 80) {
+  const words = useRef(text.split(/(\s+)/)); // preserve whitespace
+  const [visibleCount, setVisibleCount] = useState(enabled ? 0 : words.current.length);
+  const [done, setDone] = useState(!enabled);
+
+  useEffect(() => {
+    if (!enabled) {
+      setVisibleCount(words.current.length);
+      setDone(true);
+      return;
+    }
+    const total = words.current.length;
+    if (total === 0) { setDone(true); return; }
+
+    // Adaptive speed: faster for longer texts, capped at ~3s total
+    const interval = Math.max(5, Math.min(1000 / wordsPerSecond, 3000 / total));
+    let i = 0;
+    const timer = setInterval(() => {
+      i += 2; // reveal 2 tokens (word + whitespace) at a time
+      if (i >= total) {
+        setVisibleCount(total);
+        setDone(true);
+        clearInterval(timer);
+      } else {
+        setVisibleCount(i);
+      }
+    }, interval);
+
+    return () => clearInterval(timer);
+  }, [enabled, wordsPerSecond]);
+
+  const displayed = done ? text : words.current.slice(0, visibleCount).join("");
+  return { displayed, done };
+}
+
+export default function MessageBubble({ message, isNew = false }: Props) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+  const shouldAnimate = isNew && !isUser && message.content.length > 50;
+  const { displayed, done } = useTypewriter(message.content, shouldAnimate);
 
   const copyMessage = useCallback(() => {
     navigator.clipboard.writeText(message.content).then(() => {
@@ -88,8 +127,12 @@ export default function MessageBubble({ message }: Props) {
                 },
               }}
             >
-              {message.content}
+              {displayed}
             </ReactMarkdown>
+            {/* Blinking cursor during typewriter animation */}
+            {!done && (
+              <span className="inline-block w-0.5 h-4 bg-primary/70 animate-pulse ml-0.5 align-text-bottom" />
+            )}
           </div>
         )}
 

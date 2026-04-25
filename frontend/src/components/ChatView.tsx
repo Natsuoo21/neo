@@ -17,6 +17,7 @@ const THINKING_MESSAGES = [
 
 function ThinkingIndicator() {
   const [elapsed, setElapsed] = useState(0);
+  const toolStatus = useNeoStore((s) => s.toolStatus);
 
   useEffect(() => {
     const start = Date.now();
@@ -26,13 +27,16 @@ function ThinkingIndicator() {
     return () => clearInterval(timer);
   }, []);
 
-  const label = elapsed < 10
-    ? THINKING_MESSAGES[0]
-    : elapsed < 30
-      ? THINKING_MESSAGES[1]
-      : elapsed < 60
-        ? THINKING_MESSAGES[2]
-        : THINKING_MESSAGES[3];
+  // Show live tool status if available, otherwise show generic message
+  const label = toolStatus
+    ? toolStatus
+    : elapsed < 10
+      ? THINKING_MESSAGES[0]
+      : elapsed < 30
+        ? THINKING_MESSAGES[1]
+        : elapsed < 60
+          ? THINKING_MESSAGES[2]
+          : THINKING_MESSAGES[3];
 
   const timeStr = elapsed < 60
     ? `${elapsed}s`
@@ -74,6 +78,7 @@ export default function ChatView() {
   const addMessage = useNeoStore((s) => s.addMessage);
   const sessionId = useNeoStore((s) => s.sessionId);
   const setSessionId = useNeoStore((s) => s.setSessionId);
+  const lastAssistantMsgId = useNeoStore((s) => s.lastAssistantMsgId);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -172,16 +177,33 @@ export default function ChatView() {
         timestamp: Date.now(),
       };
       addMessage(assistantMsg);
+
+      // Toast for tool completions
+      if (result.tool_used) {
+        const toolLabel = result.tool_used.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        useNeoStore.getState().addToast({
+          message: `${toolLabel} completed`,
+          type: "success",
+          duration: 3000,
+        });
+      }
     } catch (err) {
+      const errText = err instanceof Error ? err.message : "Failed to connect to backend.";
       const errorMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: err instanceof Error ? err.message : "Failed to connect to backend.",
+        content: errText,
         timestamp: Date.now(),
       };
       addMessage(errorMsg);
+      useNeoStore.getState().addToast({
+        message: errText.slice(0, 80),
+        type: "error",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
+      useNeoStore.getState().setToolStatus(null);
       submittingRef.current = false;
     }
   }, [input, loading, sessionId, attachments, addMessage, setSessionId, setLoading]);
@@ -246,7 +268,11 @@ export default function ChatView() {
           ) : (
             <>
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  isNew={msg.id === lastAssistantMsgId}
+                />
               ))}
               {loading && <ThinkingIndicator />}
               <div ref={messagesEndRef} />

@@ -13,7 +13,7 @@ import json
 import logging
 import sqlite3
 import time
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Callable, TypedDict
 
 if TYPE_CHECKING:
     from neo.plugins.mcp_host import MCPHost
@@ -1180,6 +1180,7 @@ async def process(
     messages: list[dict] | None = None,
     project_id: int | None = None,
     available_skills: list[dict] | None = None,
+    on_tool_status: "Callable[[str, int], None] | None" = None,
 ) -> ProcessResult:
     """Process a user command through the full 6-stage lifecycle.
 
@@ -1254,6 +1255,10 @@ async def process(
             tool_name = llm_response["tool_name"]
             tool_input = llm_response["tool_input"]
             tools_used.append(tool_name)
+
+            # Broadcast live status so the UI shows what tool is running
+            if on_tool_status:
+                on_tool_status(tool_name, _iteration + 1)
 
             _inject_tool_paths(conn)
             tool_output = await dispatch_tool(tool_name, tool_input)

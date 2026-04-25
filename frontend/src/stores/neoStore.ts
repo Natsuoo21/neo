@@ -29,6 +29,13 @@ export interface ChatMessage {
   attachments?: string[];
 }
 
+export interface Toast {
+  id: string;
+  message: string;
+  type: "success" | "error" | "info";
+  duration?: number;
+}
+
 interface NeoState {
   // Connection
   connected: boolean;
@@ -37,6 +44,18 @@ interface NeoState {
   // Loading
   loading: boolean;
   setLoading: (v: boolean) => void;
+
+  // Live tool status (shown during tool loop)
+  toolStatus: string | null;
+  setToolStatus: (v: string | null) => void;
+
+  // ID of the last assistant message (for typewriter effect)
+  lastAssistantMsgId: string | null;
+
+  // Toast notifications
+  toasts: Toast[];
+  addToast: (t: Omit<Toast, "id">) => void;
+  removeToast: (id: string) => void;
 
   // Current view (main window)
   view: ViewId;
@@ -124,6 +143,24 @@ export const useNeoStore = create<NeoState>((set) => ({
   loading: false,
   setLoading: (v) => set({ loading: v }),
 
+  // Tool status
+  toolStatus: null,
+  setToolStatus: (v) => set({ toolStatus: v }),
+
+  // Typewriter
+  lastAssistantMsgId: null,
+
+  // Toasts
+  toasts: [],
+  addToast: (t) => {
+    const id = crypto.randomUUID();
+    set((s) => ({ toasts: [...s.toasts, { ...t, id }] }));
+    setTimeout(() => {
+      set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) }));
+    }, t.duration ?? 4000);
+  },
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+
   // View
   view: "chat",
   setView: (v) => set({ view: v }),
@@ -144,7 +181,11 @@ export const useNeoStore = create<NeoState>((set) => ({
   sessionId: null,
   messages: [],
   setSessionId: (id) => set({ sessionId: id }),
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+  addMessage: (msg) =>
+    set((s) => ({
+      messages: [...s.messages, msg],
+      lastAssistantMsgId: msg.role === "assistant" ? msg.id : s.lastAssistantMsgId,
+    })),
   setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ messages: [], sessionId: null }),
 

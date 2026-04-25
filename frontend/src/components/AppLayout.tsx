@@ -7,6 +7,7 @@ import PluginManager from "./PluginManager";
 import ActionLog from "./ActionLog";
 import SettingsPanel from "./SettingsPanel";
 import ConfirmationDialog from "./ConfirmationDialog";
+import ToastContainer from "./ToastContainer";
 import TitleBar from "./TitleBar";
 import { useNeoStore } from "@/stores/neoStore";
 import { cn } from "@/lib/utils";
@@ -84,6 +85,7 @@ export default function AppLayout() {
           <ViewComponent />
         </main>
       <ConfirmationDialog />
+      <ToastContainer />
       </div>
     </div>
   );

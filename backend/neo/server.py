@@ -667,6 +667,14 @@ def _execute_sync(
         providers_to_try = [(tier, provider)]
         providers_to_try.extend(get_fallback_providers(registry, tier))
 
+        def _tool_status_cb(tool_name: str, step: int) -> None:
+            broadcast_sse_event({
+                "type": "tool_status",
+                "tool": tool_name,
+                "step": step,
+                "session_id": session_id,
+            })
+
         result = None
         for attempt_tier, attempt_provider in providers_to_try:
             try:
@@ -680,6 +688,7 @@ def _execute_sync(
                         routed_tier=attempt_tier,
                         messages=messages,
                         available_skills=available_skills,
+                        on_tool_status=_tool_status_cb,
                     )
                 )
             except (TimeoutError, Exception) as exc:

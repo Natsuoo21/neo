@@ -89,6 +89,14 @@ export function connectStream(
     }
   });
 
+  source.addEventListener("tool_status", (e) => {
+    try {
+      onEvent("tool_status", JSON.parse(e.data));
+    } catch {
+      onEvent("tool_status", e.data);
+    }
+  });
+
   source.addEventListener("message", (e) => {
     try {
       onEvent("message", JSON.parse(e.data));

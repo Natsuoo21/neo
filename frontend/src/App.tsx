@@ -14,6 +14,7 @@ function App() {
   const [windowLabel, setWindowLabel] = useState<WindowLabel>("main");
   const setConnected = useNeoStore((s) => s.setConnected);
   const setSessions = useNeoStore((s) => s.setSessions);
+  const setToolStatus = useNeoStore((s) => s.setToolStatus);
 
   useEffect(() => {
     async function detectWindow() {
@@ -62,7 +63,12 @@ function App() {
     const disconnect = connectStream(async (event, data) => {
       const d = data as Record<string, unknown>;
 
-      if (event === "automation_status") {
+      if (event === "tool_status") {
+        const toolName = (d.tool as string) || "";
+        // Humanize tool names for display
+        const label = toolName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        setToolStatus(`Using ${label}...`);
+      } else if (event === "automation_status") {
         const status = d.status as string | undefined;
         const name = (d.name as string) || "Automation";
         if (status === "success") {
