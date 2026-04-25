@@ -87,7 +87,8 @@ pub fn run() {
             let menu =
                 Menu::with_items(app, &[&show_item, &command_item, &pause_item, &quit_item])?;
 
-            TrayIconBuilder::new()
+            // Use a fixed ID to prevent duplicate tray icons across restarts
+            TrayIconBuilder::with_id("neo-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .tooltip("Neo — Personal Intelligence Agent")
